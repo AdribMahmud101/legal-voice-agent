@@ -38,7 +38,7 @@ export function createLocalCitizenSession(
   }
 
   const id = `CIT-${crypto.randomUUID()}`;
-  const token = `local-${crypto.randomUUID()}`;
+  const token = `local_citizen_${crypto.randomUUID()}`;
   const expiresAt = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000);
   const user: SessionUser = {
     id,
@@ -52,6 +52,23 @@ export function createLocalCitizenSession(
   getStore().sessions.set(token, record);
   if (intakeId) getStore().intakes.set(intakeId, { ...record, token });
   return { user, token, expiresAt };
+}
+
+export function createLocalStaffSession(
+  user: Omit<SessionUser, "isMock">,
+): {
+  user: SessionUser;
+  token: string;
+  expiresAt: Date;
+} {
+  const token = `local_${user.role}_${crypto.randomUUID()}`;
+  const expiresAt = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000);
+  const sessionUser: SessionUser = {
+    ...user,
+    isMock: true,
+  };
+  getStore().sessions.set(token, { user: sessionUser, expiresAt: expiresAt.getTime() });
+  return { user: sessionUser, token, expiresAt };
 }
 
 export function getLocalSessionUser(token: string | undefined): SessionUser | null {

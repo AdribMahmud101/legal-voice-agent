@@ -6,6 +6,7 @@ export const APP_ROLES = [
   "special_mediator",
   "paralegal",
   "udc_entrepreneur",
+  "panel_lawyer",
 ] as const;
 
 export type AppRole = (typeof APP_ROLES)[number];
@@ -29,6 +30,7 @@ export const ROLE_LABELS: Record<AppRole, string> = {
   special_mediator: "বিশেষ মধ্যস্থতাকারী",
   paralegal: "প্যারালিগ্যাল",
   udc_entrepreneur: "ইউডিসি উদ্যোক্তা",
+  panel_lawyer: "প্যানেল আইনজীবী",
 };
 
 export const MOCK_ROLE_IDENTITIES: Record<StaffRole, Omit<SessionUser, "id" | "isMock">> = {
@@ -65,6 +67,12 @@ export const MOCK_ROLE_IDENTITIES: Record<StaffRole, Omit<SessionUser, "id" | "i
   udc_entrepreneur: {
     displayName: "রুবিনা ইয়াসমিন (মক)",
     role: "udc_entrepreneur",
+    status: "active",
+    verificationStatus: "verified",
+  },
+  panel_lawyer: {
+    displayName: "অ্যাডভোকেট শফিকুল ইসলাম (মক)",
+    role: "panel_lawyer",
     status: "active",
     verificationStatus: "verified",
   },

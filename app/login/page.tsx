@@ -2,93 +2,248 @@
 
 import Link from "next/link";
 import { useState } from "react";
-import { useVoiceSession } from "@/hooks/use-voice-session";
+import { useRouter } from "next/navigation";
 import { MOCK_ROLE_IDENTITIES, ROLE_LABELS, type StaffRole } from "@/lib/auth/roles";
+import { Button } from "@/lib/ui/components/Button";
+import { FormField } from "@/lib/ui/components/FormField";
+import { Card, CardContent } from "@/lib/ui/components/Card";
 
 const MOCK_ROLES = Object.keys(MOCK_ROLE_IDENTITIES) as StaffRole[];
 
 export default function LoginPage() {
-  const { currentUser } = useVoiceSession();
+  const router = useRouter();
+  const [activeTab, setActiveTab] = useState<"citizen" | "staff">("citizen");
+
+  // Citizen Login State
+  const [phone, setPhone] = useState("");
+  const [pin, setPin] = useState("");
+  const [isCitizenLoading, setIsCitizenLoading] = useState(false);
+  const [citizenError, setCitizenError] = useState("");
+
+  // Staff Login State
   const [selectedRole, setSelectedRole] = useState<StaffRole>("dlao_officer");
-  const selectedIdentity = MOCK_ROLE_IDENTITIES[selectedRole];
+  const [isStaffLoading, setIsStaffLoading] = useState(false);
+  const [staffError, setStaffError] = useState("");
+
+  const handleCitizenLogin = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setIsCitizenLoading(true);
+    setCitizenError("");
+
+    try {
+      const res = await fetch("/api/portal/citizen-login", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ phone, pin }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "Login failed");
+      
+      // Redirect to citizen portal
+      window.location.href = "/citizen";
+    } catch (err) {
+      setCitizenError(err instanceof Error ? err.message : "Unknown error");
+    } finally {
+      setIsCitizenLoading(false);
+    }
+  };
+
+  const handleStaffLogin = async () => {
+    setIsStaffLoading(true);
+    setStaffError("");
+
+    try {
+      const res = await fetch("/api/portal/login", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ role: selectedRole }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "Login failed");
+      
+      // Redirect based on role
+      if (selectedRole === "panel_lawyer") {
+        window.location.href = "/lawyer";
+      } else {
+        window.location.href = "/dlao";
+      }
+    } catch (err) {
+      setStaffError(err instanceof Error ? err.message : "Unknown error");
+    } finally {
+      setIsStaffLoading(false);
+    }
+  };
 
   return (
-    <main className="min-h-screen bg-slate-50 px-4 py-8 text-slate-900 sm:px-6 sm:py-12">
-      <div className="mx-auto flex w-full max-w-4xl flex-col gap-6">
-        <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
-          <div>
-            <Link href="/" className="text-sm font-semibold text-emerald-700 hover:underline">
-              ← হোম পেজে ফিরে যান
-            </Link>
-            <h1 className="mt-3 text-2xl font-bold tracking-tight text-slate-950 sm:text-3xl">
-              লগইন / রেজিস্টার
-            </h1>
-            <p className="mt-2 max-w-2xl text-sm leading-6 text-slate-600">
-              নাগরিক অ্যাকাউন্ট ভয়েস ইনটেক সম্পন্ন হলে তৈরি হয়। কর্মকর্তা ভূমিকাগুলো এখন ডেমো প্রোফাইল হিসেবে উপলব্ধ।
-            </p>
-          </div>
-          <span className="w-fit rounded-full border border-amber-200 bg-amber-50 px-3 py-2 text-xs font-semibold text-amber-800">
-            হ্যাকাথন ডেমো মোড
-          </span>
+    <main
+      style={{
+        minHeight: "100vh",
+        backgroundColor: "var(--portal-bg)",
+        display: "flex",
+        alignItems: "center",
+        justifyContent: "center",
+        padding: "var(--space-xl)",
+      }}
+    >
+      <div style={{ width: "100%", maxWidth: "480px" }}>
+        <div style={{ textAlign: "center", marginBottom: "var(--space-2xl)" }}>
+          <h1
+            style={{
+              fontFamily: "var(--font-bn)",
+              fontSize: "1.75rem",
+              fontWeight: 700,
+              color: "var(--portal-text)",
+              marginBottom: "var(--space-sm)",
+            }}
+          >
+            পোর্টাল লগইন
+          </h1>
+          <p
+            style={{
+              fontFamily: "var(--font-bn)",
+              fontSize: "1rem",
+              color: "var(--portal-text-secondary)",
+            }}
+          >
+            জাতীয় আইনগত সহায়তা প্রদান সংস্থা
+          </p>
         </div>
 
-        {currentUser ? (
-          <section className="rounded-3xl border border-emerald-200 bg-emerald-50 p-5 sm:p-7">
-            <p className="text-xs font-bold uppercase tracking-wider text-emerald-700">সক্রিয় সেশন</p>
-            <h2 className="mt-2 text-xl font-bold text-emerald-950">{currentUser.displayName}</h2>
-            <p className="mt-1 text-sm text-emerald-900">
-              ভূমিকা: {ROLE_LABELS[currentUser.role]} · যাচাই: {currentUser.verificationStatus}
-            </p>
-            <div className="mt-5 flex flex-wrap gap-3">
-              <Link href="/" className="rounded-xl bg-emerald-700 px-4 py-3 text-sm font-semibold text-white hover:bg-emerald-800">
-                হোমে ফিরুন
-              </Link>
-            </div>
-          </section>
-        ) : (
-          <section className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm sm:p-7">
-            <p className="text-xs font-bold uppercase tracking-wider text-emerald-700">নাগরিক রেজিস্ট্রেশন</p>
-            <h2 className="mt-2 text-xl font-bold text-slate-950">ভয়েস ইনটেক দিয়ে অ্যাকাউন্ট তৈরি হবে</h2>
-            <ol className="mt-5 grid gap-3 text-sm text-slate-700 sm:grid-cols-3">
-              <li className="rounded-2xl bg-slate-50 p-4">১. হটলাইনে কল করুন</li>
-              <li className="rounded-2xl bg-slate-50 p-4">২. Keypad ২ নির্বাচন করুন</li>
-              <li className="rounded-2xl bg-slate-50 p-4">৩. তথ্য সম্পূর্ণ করলে নাগরিক লগইন তৈরি হবে</li>
-            </ol>
-            <Link href="/" className="mt-5 inline-flex rounded-xl bg-emerald-700 px-4 py-3 text-sm font-semibold text-white hover:bg-emerald-800">
-              ভয়েস কল শুরু করুন
-            </Link>
-          </section>
-        )}
+        <Card>
+          <div
+            style={{
+              display: "flex",
+              borderBottom: "1px solid var(--portal-border)",
+            }}
+          >
+            <button
+              onClick={() => setActiveTab("citizen")}
+              style={{
+                flex: 1,
+                padding: "var(--space-lg)",
+                backgroundColor: activeTab === "citizen" ? "var(--portal-white)" : "var(--portal-bg-subtle)",
+                border: "none",
+                borderBottom: activeTab === "citizen" ? "2px solid var(--portal-accent)" : "2px solid transparent",
+                fontFamily: "var(--font-bn)",
+                fontWeight: 600,
+                fontSize: "1rem",
+                color: activeTab === "citizen" ? "var(--portal-accent-text)" : "var(--portal-text-secondary)",
+                cursor: "pointer",
+              }}
+            >
+              নাগরিক লগইন
+            </button>
+            <button
+              onClick={() => setActiveTab("staff")}
+              style={{
+                flex: 1,
+                padding: "var(--space-lg)",
+                backgroundColor: activeTab === "staff" ? "var(--portal-white)" : "var(--portal-bg-subtle)",
+                border: "none",
+                borderBottom: activeTab === "staff" ? "2px solid var(--portal-accent)" : "2px solid transparent",
+                fontFamily: "var(--font-bn)",
+                fontWeight: 600,
+                fontSize: "1rem",
+                color: activeTab === "staff" ? "var(--portal-accent-text)" : "var(--portal-text-secondary)",
+                cursor: "pointer",
+              }}
+            >
+              কর্মকর্তা লগইন
+            </button>
+          </div>
 
-        <section className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm sm:p-7">
-          <div className="flex flex-col gap-2 sm:flex-row sm:items-end sm:justify-between">
-            <div>
-              <p className="text-xs font-bold uppercase tracking-wider text-indigo-700">কর্মকর্তা ভূমিকা</p>
-              <h2 className="mt-2 text-xl font-bold text-slate-950">Staff mock profiles</h2>
-            </div>
-            <p className="text-xs text-slate-500">এখন কোনো staff login বা production permission নেই।</p>
-          </div>
-          <div className="mt-5 grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-            {MOCK_ROLES.map((role) => (
-              <button
-                key={role}
-                type="button"
-                onClick={() => setSelectedRole(role)}
-                className={`rounded-2xl border p-4 text-left transition ${
-                  selectedRole === role
-                    ? "border-indigo-400 bg-indigo-50 ring-2 ring-indigo-100"
-                    : "border-slate-200 bg-white hover:border-indigo-200 hover:bg-slate-50"
-                }`}
-              >
-                <span className="block text-sm font-bold text-slate-900">{ROLE_LABELS[role]}</span>
-                <span className="mt-1 block text-xs text-slate-500">Mock identity · {MOCK_ROLE_IDENTITIES[role].displayName}</span>
-              </button>
-            ))}
-          </div>
-          <div className="mt-5 rounded-2xl border border-dashed border-slate-300 bg-slate-50 p-4 text-sm text-slate-700">
-            নির্বাচিত প্রোফাইল: <strong>{ROLE_LABELS[selectedRole]}</strong> · {selectedIdentity.displayName}
-          </div>
-        </section>
+          <CardContent>
+            {activeTab === "citizen" ? (
+              <form onSubmit={handleCitizenLogin} style={{ display: "flex", flexDirection: "column", gap: "var(--space-xl)" }}>
+                <div>
+                  <p style={{ fontFamily: "var(--font-bn)", fontSize: "0.875rem", color: "var(--portal-text-secondary)", marginBottom: "var(--space-lg)" }}>
+                    ভয়েস ইনটেক সম্পন্ন হলে এসএমএস এর মাধ্যমে প্রাপ্ত টোকেন নম্বর দিয়ে লগইন করুন।
+                  </p>
+                  <div style={{ display: "flex", flexDirection: "column", gap: "var(--space-md)" }}>
+                    <FormField
+                      label="মোবাইল নম্বর"
+                      type="tel"
+                      value={phone}
+                      onChange={(e) => setPhone(e.target.value)}
+                      placeholder="01XXXXXXXXX"
+                      required
+                    />
+                    <FormField
+                      label="টোকেন নম্বর (PIN)"
+                      type="text"
+                      value={pin}
+                      onChange={(e) => setPin(e.target.value)}
+                      placeholder="DLAS-2025-XXXX"
+                      required
+                      error={citizenError}
+                    />
+                  </div>
+                </div>
+                <Button type="submit" fullWidth loading={isCitizenLoading}>
+                  লগইন করুন
+                </Button>
+              </form>
+            ) : (
+              <div style={{ display: "flex", flexDirection: "column", gap: "var(--space-xl)" }}>
+                <div>
+                  <p style={{ fontFamily: "var(--font-bn)", fontSize: "0.875rem", color: "var(--portal-text-secondary)", marginBottom: "var(--space-lg)" }}>
+                    হ্যাকাথন ডেমো: নিচে থেকে যেকোনো একটি রোল সিলেক্ট করে লগইন করুন।
+                  </p>
+                  
+                  <div style={{ display: "flex", flexDirection: "column", gap: "var(--space-sm)" }}>
+                    {MOCK_ROLES.map((role) => (
+                      <button
+                        key={role}
+                        onClick={() => setSelectedRole(role)}
+                        style={{
+                          display: "flex",
+                          flexDirection: "column",
+                          alignItems: "flex-start",
+                          padding: "var(--space-md)",
+                          borderRadius: "var(--radius-md)",
+                          border: `1.5px solid ${selectedRole === role ? "var(--portal-accent)" : "var(--portal-border)"}`,
+                          backgroundColor: selectedRole === role ? "var(--portal-accent-subtle)" : "var(--portal-white)",
+                          cursor: "pointer",
+                          transition: "all var(--transition-fast)",
+                        }}
+                      >
+                        <span style={{ fontFamily: "var(--font-bn)", fontWeight: 700, fontSize: "0.9375rem", color: "var(--portal-text)" }}>
+                          {ROLE_LABELS[role]}
+                        </span>
+                        <span style={{ fontFamily: "var(--font-bn)", fontSize: "0.8125rem", color: "var(--portal-text-secondary)" }}>
+                          {MOCK_ROLE_IDENTITIES[role].displayName}
+                        </span>
+                      </button>
+                    ))}
+                  </div>
+                  {staffError && (
+                    <p style={{ fontFamily: "var(--font-bn)", color: "#dc2626", fontSize: "0.8125rem", marginTop: "var(--space-md)", fontWeight: 500 }}>
+                      {staffError}
+                    </p>
+                  )}
+                </div>
+                <Button onClick={handleStaffLogin} fullWidth loading={isStaffLoading}>
+                  স্টাফ পোর্টালে প্রবেশ করুন
+                </Button>
+              </div>
+            )}
+          </CardContent>
+        </Card>
+
+        <div style={{ marginTop: "var(--space-xl)", textAlign: "center" }}>
+          <Link
+            href="/"
+            style={{
+              fontFamily: "var(--font-bn)",
+              fontSize: "0.875rem",
+              fontWeight: 600,
+              color: "var(--portal-accent)",
+              textDecoration: "none",
+            }}
+          >
+            ← মূল পেজে ফিরে যান
+          </Link>
+        </div>
       </div>
     </main>
   );
