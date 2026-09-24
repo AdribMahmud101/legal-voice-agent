@@ -1,0 +1,36 @@
+{
+  "name": "legal_voice_agent",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "dev": "next dev",
+    "stop": "node ./scripts/stop.mjs",
+    "restart": "node ./scripts/restart.mjs",
+    "build": "next build",
+    "start": "next start",
+    "lint": "eslint"
+  },
+  "dependencies": {
+    "@ai-sdk/openai": "^4.0.73",
+    "ai": "^7.0.112",
+    "next": "16.3.6",
+    "react": "19.2.8",
+    "react-dom": "19.2.8",
+    "ws": "^8.21.3",
+    "zod": "^4.6.5"
+  },
+  "devDependencies": {
+    "@opennextjs/cloudflare": "^1.20.6",
+    "@tailwindcss/postcss": "^4",
+    "@types/node": "^20",
+    "@types/react": "^19",
+    "@types/react-dom": "^19",
+    "@types/ws": "^8.18.1",
+    "eslint": "^9",
+    "eslint-config-next": "16.3.6",
+    "playwright-core": "^1.63.0",
+    "tailwindcss": "^4",
+    "typescript": "^5",
+    "wrangler": "^4.137.0"
+  }
+}

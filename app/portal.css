@@ -1,0 +1,556 @@
+/*
+ * Bangladesh Legal Portal — portal.css
+ * Integrated styles for government portal, multi-step wizard, voice accessibility banner, and softphone modal.
+ */
+
+:root {
+  --green: #0B5A3C;
+  --green-700: #08452E;
+  --green-50: #E8F2EC;
+  --red: #C62834;
+  --red-50: #FCEBEC;
+  --navy: #1D2433;
+  --ink: #16211C;
+  --muted: #5A6962;
+  --line: #E2E7E4;
+  --bg: #FFFFFF;
+  --soft: #F5F7F5;
+  --card: #FFFFFF;
+  --font: 'Hind Siliguri', 'Noto Sans Bengali', system-ui, sans-serif;
+  --serif: 'Source Serif 4', Georgia, serif;
+  --r: 14px;
+  --shadow: 0 1px 2px rgba(16, 40, 30, 0.06), 0 8px 24px rgba(16, 40, 30, 0.08);
+}
+
+.portal-root {
+  font-family: var(--font);
+  color: var(--ink);
+  background: var(--bg);
+  line-height: 1.6;
+  font-size: 16px;
+}
+
+.portal-root * {
+  box-sizing: border-box;
+}
+
+.portal-root a {
+  color: inherit;
+  text-decoration: none;
+}
+
+.portal-root button {
+  font: inherit;
+  cursor: pointer;
+}
+
+.portal-wrap {
+  max-width: 1240px;
+  margin: 0 auto;
+  padding: 0 24px;
+}
+
+/* Government Top Strip */
+.portal-gov {
+  background: var(--soft);
+  border-bottom: 1px solid var(--line);
+  font-size: 13.5px;
+  color: var(--muted);
+}
+.portal-gov .portal-wrap {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  min-height: 40px;
+}
+.portal-gov .left {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.portal-gov .right {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+}
+.sos-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  background: var(--red);
+  color: #fff;
+  font-weight: 600;
+  padding: 3px 12px;
+  border-radius: 999px;
+  border: 0;
+  font-size: 13px;
+  cursor: pointer;
+  transition: transform 0.15s ease;
+}
+.sos-chip:hover {
+  transform: scale(1.03);
+}
+.sos-chip .dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: #fff;
+  animation: pulse-dot 1.6s infinite;
+}
+@keyframes pulse-dot {
+  50% { opacity: 0.35; }
+}
+
+/* Main Navigation Header */
+header.portal-header {
+  position: sticky;
+  top: 0;
+  z-index: 40;
+  background: rgba(255, 255, 255, 0.98);
+  backdrop-filter: blur(8px);
+  border-bottom: 1px solid var(--line);
+}
+header.portal-header .portal-wrap {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  min-height: 76px;
+}
+.brand {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-shrink: 0;
+}
+.brand img {
+  height: 48px;
+  width: auto;
+}
+.brand .wm {
+  font-family: var(--serif);
+  line-height: 1.05;
+  font-weight: 700;
+  font-size: 16px;
+}
+.brand .wm b {
+  display: block;
+  color: var(--green);
+  font-weight: 700;
+}
+.brand .wm span {
+  color: var(--ink);
+}
+nav.portal-links {
+  display: flex;
+  gap: 2px;
+  flex: 1;
+  justify-content: center;
+}
+nav.portal-links a {
+  padding: 8px 12px;
+  border-radius: 8px;
+  font-weight: 500;
+  font-size: 15px;
+  white-space: nowrap;
+  transition: background 0.15s, color 0.15s;
+}
+nav.portal-links a:hover {
+  background: var(--green-50);
+  color: var(--green);
+}
+nav.portal-links a .new {
+  display: inline-block;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--red);
+  margin-left: 4px;
+  vertical-align: 6px;
+}
+.header-actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.header-hot {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  background: #E8F2EC;
+  color: #0B5A3C;
+  padding: 8px 14px;
+  border-radius: 12px;
+  font-weight: 700;
+  border: 1.5px solid #BFDCCB;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+.header-hot:hover {
+  background: #0B5A3C;
+  color: #fff;
+  border-color: #0B5A3C;
+}
+
+/* Notice Ticker */
+.portal-ticker {
+  background: var(--green-700);
+  color: #fff;
+  font-size: 14.5px;
+}
+.portal-ticker .portal-wrap {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  min-height: 42px;
+}
+.portal-ticker .tag {
+  background: #fff;
+  color: var(--green-700);
+  font-weight: 700;
+  border-radius: 6px;
+  padding: 1px 10px;
+  flex-shrink: 0;
+  font-size: 13px;
+}
+.portal-ticker .track {
+  overflow: hidden;
+  flex: 1;
+  mask-image: linear-gradient(90deg, transparent, #000 4%, #000 96%, transparent);
+}
+.portal-ticker .run {
+  display: inline-flex;
+  gap: 48px;
+  white-space: nowrap;
+  animation: ticker-anim 35s linear infinite;
+}
+.portal-ticker:hover .run {
+  animation-play-state: paused;
+}
+@keyframes ticker-anim {
+  to { transform: translateX(-50%); }
+}
+
+/* Voice First Accessibility Hero Callout */
+.voice-hero-callout {
+  background: linear-gradient(135deg, #0B5A3C 0%, #063925 100%);
+  border: 2px solid #23A46D;
+  border-radius: 24px;
+  color: #fff;
+  padding: 24px 28px;
+  box-shadow: 0 12px 32px rgba(11, 90, 60, 0.25);
+  margin-top: 18px;
+  margin-bottom: 24px;
+  position: relative;
+  overflow: hidden;
+}
+.voice-hero-callout::before {
+  content: "";
+  position: absolute;
+  top: -50px;
+  right: -50px;
+  width: 200px;
+  height: 200px;
+  border-radius: 50%;
+  background: radial-gradient(circle, rgba(255,255,255,0.15) 0%, rgba(255,255,255,0) 70%);
+}
+.callout-pulse-btn {
+  background: #F2B705;
+  color: #122116;
+  font-weight: 800;
+  font-size: 17px;
+  padding: 14px 26px;
+  border-radius: 14px;
+  border: 0;
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  box-shadow: 0 4px 18px rgba(242, 183, 5, 0.45);
+  cursor: pointer;
+  transition: all 0.2s ease-in-out;
+  animation: call-pulse 2s infinite;
+}
+.callout-pulse-btn:hover {
+  transform: translateY(-2px) scale(1.02);
+  background: #ffc414;
+}
+@keyframes call-pulse {
+  0% { box-shadow: 0 0 0 0 rgba(242, 183, 5, 0.6); }
+  70% { box-shadow: 0 0 0 16px rgba(242, 183, 5, 0); }
+  100% { box-shadow: 0 0 0 0 rgba(242, 183, 5, 0); }
+}
+
+/* Hero Section */
+.portal-hero {
+  position: relative;
+  isolation: isolate;
+  min-height: clamp(520px, 40vw, 680px);
+  display: flex;
+  align-items: flex-end;
+  color: #fff;
+  background: #0A2419 url('/assets/images/hero-supreme-court.jpg') center 35%/cover no-repeat;
+}
+.portal-hero::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  background: linear-gradient(180deg, rgba(4,28,18,0.2) 0%, rgba(4,28,18,0.4) 30%, rgba(4,24,16,0.75) 60%, rgba(3,18,12,0.95) 100%),
+              linear-gradient(90deg, rgba(4,28,18,0.6) 0%, rgba(4,28,18,0.2) 50%, rgba(4,28,18,0.5) 100%);
+}
+.portal-hero h1, .portal-hero p {
+  text-shadow: 0 2px 14px rgba(0, 0, 0, 0.5);
+}
+.portal-hero .portal-wrap {
+  position: relative;
+  display: grid;
+  grid-template-columns: 1.15fr 0.85fr;
+  gap: 36px;
+  align-items: end;
+  padding-bottom: 96px;
+  width: 100%;
+}
+.portal-hero h1 {
+  font-size: clamp(32px, 4.4vw, 52px);
+  line-height: 1.2;
+  margin: 0;
+  font-weight: 700;
+}
+.portal-hero p {
+  margin: 0 0 22px;
+  font-size: 17px;
+  color: #E4EAE6;
+  max-width: 520px;
+}
+.portal-hero .ctas {
+  display: flex;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+/* Quick Services */
+.portal-quick {
+  position: relative;
+  z-index: 5;
+  margin-top: -64px;
+}
+.portal-quick .grid {
+  display: grid;
+  grid-template-columns: repeat(5, 1fr);
+  gap: 14px;
+}
+.qcard {
+  background: var(--card);
+  border: 1px solid var(--line);
+  border-radius: var(--r);
+  padding: 18px;
+  box-shadow: var(--shadow);
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  transition: transform 0.15s ease, box-shadow 0.15s ease;
+  cursor: pointer;
+}
+.qcard:hover {
+  transform: translateY(-4px);
+  box-shadow: 0 12px 28px rgba(16, 40, 30, 0.12);
+}
+.qcard .ic {
+  width: 44px;
+  height: 44px;
+  border-radius: 12px;
+  background: var(--green-50);
+  color: var(--green);
+  display: grid;
+  place-items: center;
+  margin-bottom: 6px;
+}
+.qcard b {
+  font-size: 16.5px;
+}
+.qcard span {
+  color: var(--muted);
+  font-size: 13.5px;
+  line-height: 1.45;
+}
+.qcard.em {
+  background: var(--red);
+  color: #fff;
+  border-color: var(--red);
+}
+.qcard.em .ic {
+  background: rgba(255, 255, 255, 0.18);
+  color: #fff;
+}
+.qcard.em span {
+  color: #FBDADC;
+}
+.qcard.voice-card {
+  background: linear-gradient(135deg, #E8F2EC 0%, #D4EAE0 100%);
+  border: 2px solid #0B5A3C;
+}
+.qcard.voice-card .ic {
+  background: #0B5A3C;
+  color: #fff;
+}
+
+/* Emergency Section */
+.portal-block {
+  padding: 72px 0;
+}
+.portal-block.emg {
+  background: #FFF7F8;
+  border-top: 1px solid #F5D5D8;
+  border-bottom: 1px solid #F5D5D8;
+}
+.emg .portal-wrap {
+  display: grid;
+  grid-template-columns: 0.9fr 1.1fr;
+  gap: 40px;
+  align-items: center;
+}
+.calls {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 12px;
+  margin-top: 20px;
+}
+.call-btn {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 14px 16px;
+  border-radius: 14px;
+  background: #fff;
+  border: 1.5px solid #F1D4D7;
+  color: var(--ink);
+  cursor: pointer;
+  transition: all 0.15s;
+}
+.call-btn:hover {
+  border-color: var(--red);
+  transform: translateY(-2px);
+  box-shadow: 0 4px 14px rgba(198, 40, 52, 0.12);
+}
+.call-btn .num {
+  font-size: 22px;
+  font-weight: 800;
+  color: var(--red);
+  font-family: monospace;
+}
+.call-btn.hot-16699 {
+  border-color: var(--green);
+}
+.call-btn.hot-16699 .num {
+  color: var(--green);
+}
+
+/* Mediation & Lawyers Sections */
+.lgrid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+  gap: 18px;
+  margin-top: 22px;
+}
+.lcard {
+  background: #fff;
+  border: 1px solid var(--line);
+  border-radius: 16px;
+  padding: 20px;
+  box-shadow: var(--shadow);
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.lhead {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+.chip {
+  padding: 6px 14px;
+  border-radius: 999px;
+  border: 1px solid var(--line);
+  background: var(--card);
+  font-size: 13.5px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.15s;
+}
+.chip.on {
+  background: var(--green);
+  color: #fff;
+  border-color: var(--green);
+}
+
+/* Floating Emergency & Call Button */
+.floating-call-cta {
+  position: fixed;
+  bottom: 24px;
+  right: 24px;
+  z-index: 50;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 10px;
+}
+.floating-call-btn {
+  background: #0B5A3C;
+  color: #fff;
+  font-weight: 700;
+  padding: 14px 22px;
+  border-radius: 999px;
+  border: 2px solid #23A46D;
+  box-shadow: 0 8px 28px rgba(11, 90, 60, 0.4);
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  cursor: pointer;
+  transition: transform 0.2s;
+  animation: call-pulse 2.5s infinite;
+}
+.floating-call-btn:hover {
+  transform: scale(1.05);
+}
+
+/* Active Call Floating Mini-Bar */
+.active-call-pill {
+  position: fixed;
+  bottom: 24px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 60;
+  background: #08281B;
+  color: #fff;
+  border: 2px solid #23A46D;
+  border-radius: 999px;
+  padding: 10px 24px;
+  box-shadow: 0 12px 36px rgba(0, 0, 0, 0.4);
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  animation: slide-up 0.3s ease;
+}
+@keyframes slide-up {
+  from { transform: translate(-50%, 40px); opacity: 0; }
+  to { transform: translate(-50%, 0); opacity: 1; }
+}
+
+@media (max-width: 900px) {
+  .portal-hero .portal-wrap {
+    grid-template-columns: 1fr;
+    padding-bottom: 60px;
+  }
+  .portal-quick .grid {
+    grid-template-columns: repeat(2, 1fr);
+  }
+  nav.portal-links {
+    display: none;
+  }
+  .calls {
+    grid-template-columns: 1fr;
+  }
+  .emg .portal-wrap {
+    grid-template-columns: 1fr;
+  }
+}
