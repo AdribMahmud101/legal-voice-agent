@@ -31,6 +31,7 @@ export function PortalView({ onOpenSoftphone, isCallActive, currentUser }: Porta
   const [isNotifOpen, setIsNotifOpen] = useState(false);
   const [isSosOpen, setIsSosOpen] = useState(false);
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
+  const [isLoginDropdownOpen, setIsLoginDropdownOpen] = useState(false);
   const [toastMsg, setToastMsg] = useState<string | null>(null);
 
   // Panel Lawyers Filter State
@@ -138,21 +139,41 @@ export function PortalView({ onOpenSoftphone, isCallActive, currentUser }: Porta
           </nav>
 
           {/* Action CTAs */}
-           <div className="header-actions flex items-center gap-2.5">
-             <Link
-               href="/login"
-               className="hidden min-h-10 items-center rounded-xl border border-emerald-200 bg-white px-3 text-xs font-semibold text-emerald-800 transition hover:bg-emerald-50 sm:inline-flex"
-             >
-               লগইন / রেজিস্টার
-             </Link>
-             {/* Direct Softphone Trigger Button */}
+           <div className="header-actions flex items-center gap-2.5 relative">
+              <div 
+                className="hidden sm:block relative"
+                onMouseEnter={() => setIsLoginDropdownOpen(true)}
+                onMouseLeave={() => setIsLoginDropdownOpen(false)}
+              >
+                <button
+                  className="min-h-10 items-center rounded border border-emerald-800 bg-white px-4 text-sm font-bold text-emerald-800 transition hover:bg-emerald-50 flex gap-1"
+                >
+                  লগইন
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M6 9l6 6 6-6"/></svg>
+                </button>
+                
+                {isLoginDropdownOpen && (
+                  <div className="absolute right-0 top-full mt-1 w-56 bg-white border border-slate-200 shadow-md rounded overflow-hidden z-50">
+                    <Link href="/login?tab=citizen" className="block px-4 py-2.5 text-sm font-semibold text-slate-800 hover:bg-slate-50 hover:text-emerald-800 border-b border-slate-100">
+                      নাগরিক লগইন
+                    </Link>
+                    <Link href="/login?tab=staff" className="block px-4 py-2.5 text-sm font-semibold text-slate-800 hover:bg-slate-50 hover:text-emerald-800 border-b border-slate-100">
+                      ডিএলএও (DLAO) লগইন
+                    </Link>
+                    <Link href="/login?tab=staff" className="block px-4 py-2.5 text-sm font-semibold text-slate-800 hover:bg-slate-50 hover:text-emerald-800">
+                      প্যানেল আইনজীবী লগইন
+                    </Link>
+                  </div>
+                )}
+              </div>
 
+             {/* Direct Softphone Trigger Button */}
             <button
               onClick={onOpenSoftphone}
-              className="header-hot bg-emerald-700 hover:bg-emerald-800 text-white font-bold text-xs sm:text-sm px-3.5 py-2 rounded-xl flex items-center gap-2 shadow-sm transition active:scale-95 cursor-pointer"
+              className="header-hot bg-red-600 hover:bg-red-700 text-white font-bold text-xs sm:text-sm px-4 py-2 rounded flex items-center gap-2 shadow-sm transition active:scale-95 cursor-pointer"
             >
-              <span className="text-base animate-pulse">📞</span>
-              <span>১৬৬৯৯ কল করুন</span>
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6 19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72 12.84 12.84 0 0 0 .7 2.81 2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45 12.84 12.84 0 0 0 2.81.7A2 2 0 0 1 22 16.92z"/></svg>
+              <span>১৬৬৯৯ - হেল্পলাইন</span>
             </button>
 
             {/* Notification Bell */}
@@ -277,10 +298,10 @@ export function PortalView({ onOpenSoftphone, isCallActive, currentUser }: Porta
             নোটিশ
           </span>
           <div className="track flex-1 overflow-hidden">
-            <div className="run flex gap-8 whitespace-nowrap text-xs sm:text-sm">
-              <span>📢 পড়তে বা লিখতে সমস্যা হলে সরাসরি ১৬৬৯৯-এ কল করে বাংলায় মুখে আপনার সমস্যা বলুন।</span>
-              <span>⚖️ ৬৪ জেলার প্যানেল আইনজীবীর তালিকা হালনাগাদ করা হয়েছে — সরকার ফি বহন করবে।</span>
-              <span>🛡️ নারী ও শিশু নির্যাতনের শিকার হলে ১০৯ ও ১৬৬৯৯ নম্বরে তাৎক্ষণিক বিনামূল্যে সহায়তা পান।</span>
+            <div className="run flex gap-8 whitespace-nowrap text-xs sm:text-sm font-semibold">
+              <span> পড়তে বা লিখতে সমস্যা হলে সরাসরি ১৬৬৯৯-এ কল করে বাংলায় মুখে আপনার সমস্যা বলুন।</span>
+              <span> ৬৪ জেলার প্যানেল আইনজীবীর তালিকা হালনাগাদ করা হয়েছে — সরকার ফি বহন করবে।</span>
+              <span> নারী ও শিশু নির্যাতনের শিকার হলে ১০৯ ও ১৬৬৯৯ নম্বরে তাৎক্ষণিক বিনামূল্যে সহায়তা পান।</span>
             </div>
           </div>
         </div>
@@ -290,28 +311,28 @@ export function PortalView({ onOpenSoftphone, isCallActive, currentUser }: Porta
         <main className="flex-1">
           {/* 4. Special Accessibility Banner for Illiterate & Non-Technical Callers */}
           <div className="portal-wrap pt-5">
-            <div className="voice-hero-callout p-6 rounded-3xl bg-gradient-to-r from-emerald-900 via-emerald-800 to-teal-900 text-white border-2 border-emerald-400 shadow-xl flex flex-col md:flex-row items-center justify-between gap-6">
+            <div className="voice-hero-callout p-6 rounded bg-emerald-900 text-white border border-emerald-800 shadow-md flex flex-col md:flex-row items-center justify-between gap-6">
                <div className="flex items-start gap-4 min-w-0">
 
-                <div className="w-16 h-16 rounded-2xl bg-amber-400 text-emerald-950 flex items-center justify-center text-3xl font-bold shrink-0 shadow-md">
-                  🎙️
+                <div className="w-16 h-16 rounded bg-white text-emerald-900 flex items-center justify-center shrink-0 border-2 border-emerald-700">
+                  <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3z"/><path d="M19 10v2a7 7 0 0 1-14 0v-2"/><line x1="12" y1="19" x2="12" y2="22"/><line x1="8" y1="22" x2="16" y2="22"/></svg>
                 </div>
                 <div>
-                  <div className="inline-flex items-center gap-2 bg-amber-400/20 text-amber-300 border border-amber-400/40 px-3 py-0.5 rounded-full text-xs font-bold mb-1.5">
-                    <span>✨ বিশেষ ভয়েস সুবিধা (Voice-First Access)</span>
+                  <div className="inline-flex items-center gap-2 bg-emerald-800 px-3 py-1 rounded text-xs font-bold mb-2 uppercase tracking-wider text-emerald-100">
+                    <span>ভয়েস-অ্যাসিস্টেড আইনি সহায়তা</span>
                   </div>
-                  <h2 className="text-xl sm:text-2xl font-extrabold text-white leading-tight">
-                    পড়তে বা লিখতে পারেন না? কোনো সমস্যা নেই!
+                  <h2 className="text-xl sm:text-2xl font-bold text-white leading-tight">
+                    পড়তে বা লিখতে সমস্যা? বিনামূল্যে আইনি সহায়তার জন্য মুখে বলুন
                   </h2>
-                  <p className="text-sm text-emerald-100 mt-1 max-w-xl leading-relaxed">
-                    কোনো ফর্ম পূরণ বা টাইপ করতে হবে না। নিচের বাটনে চাপ দিয়ে সরাসরি <strong>বাংলায় মুখে বলুন</strong>। আমাদের কৃত্রিম বুদ্ধিমত্তা চালিত ১৬৬৯৯ আইনি সহকারী আপনার কথা শুনবে এবং বিনামূল্যে অভিযোগ গ্রহণ করবে।
+                  <p className="text-sm text-emerald-100 mt-2 max-w-xl leading-relaxed">
+                    কোনো ফর্ম পূরণ বা টাইপ করার প্রয়োজন নেই। নিচের বাটনে ক্লিক করে সরাসরি <strong>বাংলায় কথা বলুন</strong>। কৃত্রিম বুদ্ধিমত্তা সম্পন্ন ভয়েস সিস্টেম আপনার অভিযোগ গ্রহণ করে যথাযথ আইনি সহায়তা প্রদান করবে।
                   </p>
-                  <div className="flex flex-wrap items-center gap-3 mt-3 text-xs text-emerald-200 font-medium">
-                    <span className="flex items-center gap-1">🔊 মুখে বলুন, বাংলায় শুনুন</span>
-                    <span>•</span>
-                    <span className="flex items-center gap-1">🆓 ১০০% সরকারি খরচে</span>
-                    <span>•</span>
-                    <span className="flex items-center gap-1">♿ প্রতিবন্ধী ও বয়স্কদের জন্য সহজ</span>
+                  <div className="flex flex-wrap items-center gap-3 mt-4 text-xs text-emerald-100 font-semibold">
+                    <span className="flex items-center gap-1"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><polyline points="20 6 9 17 4 12"/></svg> সরাসরি মুখে বলুন</span>
+                    <span>|</span>
+                    <span className="flex items-center gap-1"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><polyline points="20 6 9 17 4 12"/></svg> সম্পূর্ণ সরকারি খরচে</span>
+                    <span>|</span>
+                    <span className="flex items-center gap-1"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><polyline points="20 6 9 17 4 12"/></svg> সহজে ব্যবহারযোগ্য</span>
                   </div>
                 </div>
               </div>
@@ -319,10 +340,10 @@ export function PortalView({ onOpenSoftphone, isCallActive, currentUser }: Porta
               <div className="shrink-0 flex flex-col items-center gap-2 w-full md:w-auto">
                 <button
                   onClick={onOpenSoftphone}
-                  className="callout-pulse-btn w-full md:w-auto text-center justify-center"
+                  className="bg-red-600 hover:bg-red-700 text-white px-6 py-3 font-bold rounded shadow flex items-center justify-center gap-2 w-full md:w-auto transition"
                 >
-                  <span className="text-2xl">📞</span>
-                  <span>১৬৬৯৯-এ এখনই কথা বলুন</span>
+                  <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6 19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72 12.84 12.84 0 0 0 .7 2.81 2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45 12.84 12.84 0 0 0 2.81.7A2 2 0 0 1 22 16.92z"/></svg>
+                  <span>১৬৬৯৯-এ কল করুন</span>
                 </button>
                 <span className="text-[11px] text-emerald-300 font-mono">
                   কোনো মোবাইল ব্যালেন্স বা ইন্টারনেট ডেটা খরচ হবে না
@@ -344,16 +365,16 @@ export function PortalView({ onOpenSoftphone, isCallActive, currentUser }: Porta
                 <div className="ctas flex flex-wrap items-center gap-3 mt-5">
                   <button
                     onClick={onOpenSoftphone}
-                    className="px-6 py-3.5 bg-emerald-500 hover:bg-emerald-600 text-slate-950 font-bold text-base rounded-xl shadow-lg flex items-center gap-2 transition cursor-pointer"
+                    className="px-6 py-3 bg-white text-emerald-900 font-bold text-base rounded shadow flex items-center gap-2 transition cursor-pointer hover:bg-slate-100"
                   >
-                    <span>📞</span>
-                    <span>১৬৬৯৯-এ ভয়েস কল করুন</span>
+                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6 19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72 12.84 12.84 0 0 0 .7 2.81 2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45 12.84 12.84 0 0 0 2.81.7A2 2 0 0 1 22 16.92z"/></svg>
+                    <span>১৬৬৯৯-এ কল করুন</span>
                   </button>
                   <button
                     onClick={() => setCurrentView("apply")}
-                    className="px-6 py-3.5 bg-white/20 hover:bg-white/30 text-white font-semibold text-base rounded-xl border border-white/40 transition cursor-pointer"
+                    className="px-6 py-3 bg-transparent hover:bg-white/10 text-white font-semibold text-base rounded border-2 border-white transition cursor-pointer"
                   >
-                    অনলাইনে ফর্ম পূরণ →
+                    অনলাইনে আবেদন ফর্ম →
                   </button>
                 </div>
               </div>
@@ -367,46 +388,56 @@ export function PortalView({ onOpenSoftphone, isCallActive, currentUser }: Porta
               {/* Voice Card */}
               <div
                 onClick={onOpenSoftphone}
-                className="qcard voice-card cursor-pointer group"
+                className="qcard voice-card cursor-pointer group bg-white border border-emerald-200 rounded p-4 text-center hover:shadow-md transition"
               >
-                <div className="ic group-hover:scale-110 transition">📞</div>
-                <b className="text-emerald-950">ভয়েস কল ১৬৬৯৯</b>
-                <span>মুখে বলে আইনি পরামর্শ ও তাৎক্ষণিক অভিযোগ</span>
+                <div className="ic mb-2 flex justify-center text-emerald-700">
+                  <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6 19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72 12.84 12.84 0 0 0 .7 2.81 2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45 12.84 12.84 0 0 0 2.81.7A2 2 0 0 1 22 16.92z"/></svg>
+                </div>
+                <b className="text-emerald-900 block font-bold mb-1">ভয়েস কল ১৬৬৯৯</b>
+                <span className="text-slate-600 text-xs">মুখে বলে আইনি পরামর্শ ও তাৎক্ষণিক অভিযোগ</span>
               </div>
 
               {/* Service 1 */}
               <div
                 onClick={() => setCurrentView("apply")}
-                className="qcard cursor-pointer group"
+                className="qcard cursor-pointer group bg-white border border-slate-200 rounded p-4 text-center hover:shadow-md transition"
               >
-                <div className="ic group-hover:scale-110 transition">📝</div>
-                <b>সহায়তার আবেদন</b>
-                <span>ফোন নম্বর ও NID দিয়ে অনলাইনে আবেদন</span>
+                <div className="ic mb-2 flex justify-center text-slate-500">
+                  <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/><polyline points="10 9 9 9 8 9"/></svg>
+                </div>
+                <b className="text-slate-800 block font-bold mb-1">সহায়তার আবেদন</b>
+                <span className="text-slate-600 text-xs">ফোন নম্বর ও NID দিয়ে অনলাইনে আবেদন</span>
               </div>
 
               {/* Service 2 */}
-              <a href="#mediation" className="qcard group">
-                <div className="ic group-hover:scale-110 transition">🤝</div>
-                <b>মধ্যস্থতা (ADR)</b>
-                <span>আদালতের বাইরে বিরোধের দ্রুত সমাধান</span>
+              <a href="#mediation" className="qcard group bg-white border border-slate-200 rounded p-4 text-center hover:shadow-md transition">
+                <div className="ic mb-2 flex justify-center text-slate-500">
+                  <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>
+                </div>
+                <b className="text-slate-800 block font-bold mb-1">মধ্যস্থতা (ADR)</b>
+                <span className="text-slate-600 text-xs">আদালতের বাইরে বিরোধের দ্রুত সমাধান</span>
               </a>
 
               {/* Service 3 */}
-              <a href="#lawyers" className="qcard group">
-                <div className="ic group-hover:scale-110 transition">⚖️</div>
-                <b>প্যানেল আইনজীবী</b>
-                <span>সরকারি খরচে ৬৪ জেলার আইনজীবী খুঁজুন</span>
+              <a href="#lawyers" className="qcard group bg-white border border-slate-200 rounded p-4 text-center hover:shadow-md transition">
+                <div className="ic mb-2 flex justify-center text-slate-500">
+                  <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><polygon points="12 2 2 7 12 12 22 7 12 2"/><polyline points="2 17 12 22 22 17"/><polyline points="2 12 12 17 22 12"/></svg>
+                </div>
+                <b className="text-slate-800 block font-bold mb-1">প্যানেল আইনজীবী</b>
+                <span className="text-slate-600 text-xs">সরকারি খরচে ৬৪ জেলার আইনজীবী খুঁজুন</span>
               </a>
 
               {/* Service 4: Emergency */}
               <div
                 onClick={() => setIsSosOpen(true)}
-                 className="qcard em cursor-pointer group col-span-2 xl:col-span-1"
+                 className="qcard em cursor-pointer group col-span-2 xl:col-span-1 bg-rose-50 border border-rose-200 rounded p-4 text-center hover:shadow-md transition"
 
               >
-                <div className="ic group-hover:scale-110 transition">🚨</div>
-                <b>জরুরি সহায়তা</b>
-                <span>বিপদে থাকলে এখনই এক ট্যাপে কল করুন</span>
+                <div className="ic mb-2 flex justify-center text-rose-600">
+                  <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
+                </div>
+                <b className="text-rose-800 block font-bold mb-1">জরুরি সহায়তা</b>
+                <span className="text-rose-600 text-xs">বিপদে থাকলে এখনই এক ট্যাপে কল করুন</span>
               </div>
             </div>
           </section>
