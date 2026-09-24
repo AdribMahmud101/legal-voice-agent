@@ -2,10 +2,13 @@
 
 import { useEffect, useState } from "react";
 import Image from "next/image";
+import Link from "next/link";
+import { ROLE_LABELS, type SessionUser } from "@/lib/auth/roles";
 
 interface PortalViewProps {
   onOpenSoftphone: () => void;
   isCallActive: boolean;
+  currentUser: SessionUser | null;
 }
 
 const LAWYERS = [
@@ -22,7 +25,7 @@ const LAWYERS = [
 
 const bnNum = (n: number | string) => String(n).replace(/\d/g, (d) => "০১২৩৪৫৬৭৮৯"[+d]);
 
-export function PortalView({ onOpenSoftphone, isCallActive }: PortalViewProps) {
+export function PortalView({ onOpenSoftphone, isCallActive, currentUser }: PortalViewProps) {
   const [currentView, setCurrentView] = useState<"home" | "apply">("home");
   const [bengaliDate, setBengaliDate] = useState("");
   const [isNotifOpen, setIsNotifOpen] = useState(false);
@@ -135,8 +138,15 @@ export function PortalView({ onOpenSoftphone, isCallActive }: PortalViewProps) {
           </nav>
 
           {/* Action CTAs */}
-          <div className="header-actions flex items-center gap-2.5">
-            {/* Direct Softphone Trigger Button */}
+           <div className="header-actions flex items-center gap-2.5">
+             <Link
+               href="/login"
+               className="hidden min-h-10 items-center rounded-xl border border-emerald-200 bg-white px-3 text-xs font-semibold text-emerald-800 transition hover:bg-emerald-50 sm:inline-flex"
+             >
+               লগইন / রেজিস্টার
+             </Link>
+             {/* Direct Softphone Trigger Button */}
+
             <button
               onClick={onOpenSoftphone}
               className="header-hot bg-emerald-700 hover:bg-emerald-800 text-white font-bold text-xs sm:text-sm px-3.5 py-2 rounded-xl flex items-center gap-2 shadow-sm transition active:scale-95 cursor-pointer"
@@ -161,7 +171,8 @@ export function PortalView({ onOpenSoftphone, isCallActive }: PortalViewProps) {
               </button>
 
               {isNotifOpen && (
-                <div className="absolute right-0 top-12 w-80 bg-white border border-slate-200 rounded-2xl shadow-xl p-4 z-50">
+                 <div className="notification-panel absolute right-0 top-12 w-80 bg-white border border-slate-200 rounded-2xl shadow-xl p-4 z-50">
+
                   <div className="flex items-center justify-between border-b border-slate-100 pb-2 mb-2">
                     <span className="font-bold text-xs text-slate-800">নোটিফিকেশন</span>
                     <button onClick={() => setIsNotifOpen(false)} className="text-[11px] text-emerald-700 font-semibold">
@@ -181,12 +192,18 @@ export function PortalView({ onOpenSoftphone, isCallActive }: PortalViewProps) {
             </div>
 
             {/* Mobile Menu Toggle */}
-            <button
-              onClick={() => setIsMobileMenuOpen(!isMobileMenuOpen)}
-              className="lg:hidden w-10 h-10 rounded-xl border border-slate-200 bg-slate-50 flex items-center justify-center text-slate-700"
-            >
-              ☰
-            </button>
+             <button
+               onClick={() => setIsMobileMenuOpen(!isMobileMenuOpen)}
+               className="lg:hidden w-10 h-10 rounded-xl border border-slate-200 bg-slate-50 flex items-center justify-center text-slate-700"
+             >
+               ☰
+             </button>
+             {currentUser && (
+               <span className="hidden max-w-40 truncate rounded-full bg-emerald-50 px-3 py-2 text-[11px] font-semibold text-emerald-800 sm:inline-flex">
+                 {currentUser.displayName} · {ROLE_LABELS[currentUser.role]}
+               </span>
+             )}
+
           </div>
         </div>
 
@@ -201,10 +218,18 @@ export function PortalView({ onOpenSoftphone, isCallActive }: PortalViewProps) {
               className="block w-full text-left py-2 text-slate-700"
             >
               হোম পেজ
-            </button>
-            <button
-              onClick={() => {
-                setCurrentView("apply");
+             </button>
+             <Link
+               href="/login"
+               onClick={() => setIsMobileMenuOpen(false)}
+               className="block w-full rounded-xl bg-emerald-50 py-2.5 text-left text-emerald-800"
+             >
+               লগইন / রেজিস্টার
+             </Link>
+             <button
+               onClick={() => {
+                 setCurrentView("apply");
+
                 setIsMobileMenuOpen(false);
               }}
               className="block w-full text-left py-2 text-emerald-800"
@@ -266,7 +291,8 @@ export function PortalView({ onOpenSoftphone, isCallActive }: PortalViewProps) {
           {/* 4. Special Accessibility Banner for Illiterate & Non-Technical Callers */}
           <div className="portal-wrap pt-5">
             <div className="voice-hero-callout p-6 rounded-3xl bg-gradient-to-r from-emerald-900 via-emerald-800 to-teal-900 text-white border-2 border-emerald-400 shadow-xl flex flex-col md:flex-row items-center justify-between gap-6">
-              <div className="flex items-start gap-4">
+               <div className="flex items-start gap-4 min-w-0">
+
                 <div className="w-16 h-16 rounded-2xl bg-amber-400 text-emerald-950 flex items-center justify-center text-3xl font-bold shrink-0 shadow-md">
                   🎙️
                 </div>
@@ -336,7 +362,8 @@ export function PortalView({ onOpenSoftphone, isCallActive }: PortalViewProps) {
 
           {/* 6. Quick Services Grid */}
           <section className="portal-quick portal-wrap">
-            <div className="grid grid-cols-2 md:grid-cols-5 gap-3.5">
+             <div className="grid grid-cols-2 gap-3.5 md:grid-cols-3 xl:grid-cols-5">
+
               {/* Voice Card */}
               <div
                 onClick={onOpenSoftphone}
@@ -374,7 +401,8 @@ export function PortalView({ onOpenSoftphone, isCallActive }: PortalViewProps) {
               {/* Service 4: Emergency */}
               <div
                 onClick={() => setIsSosOpen(true)}
-                className="qcard em cursor-pointer group col-span-2 md:col-span-1"
+                 className="qcard em cursor-pointer group col-span-2 xl:col-span-1"
+
               >
                 <div className="ic group-hover:scale-110 transition">🚨</div>
                 <b>জরুরি সহায়তা</b>
@@ -451,7 +479,8 @@ export function PortalView({ onOpenSoftphone, isCallActive }: PortalViewProps) {
                   পারিবারিক, জমিজমা, দেনা-পাওনা বা শ্রম বিরোধ একজন নিরপেক্ষ সরকারি মধ্যস্থতাকারীর সাহায্যে বন্ধুত্বপূর্ণ আলোচনার মাধ্যমে সমাধান করুন।
                 </p>
 
-                <div className="grid grid-cols-3 gap-3 my-6">
+                 <div className="grid grid-cols-1 min-[480px]:grid-cols-3 gap-3 my-6">
+
                   <div className="p-3.5 rounded-2xl bg-emerald-50 border border-emerald-200 text-center">
                     <b className="text-emerald-900 block text-sm">১০০% বিনামূল্যে</b>
                     <span className="text-[11px] text-slate-500">কোনো ফি লাগে না</span>
@@ -515,7 +544,8 @@ export function PortalView({ onOpenSoftphone, isCallActive }: PortalViewProps) {
                     />
                   </div>
 
-                  <div className="grid grid-cols-2 gap-3">
+                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+
                     <div>
                       <label className="font-semibold text-slate-700 block mb-1">মোবাইল নম্বর *</label>
                       <input
@@ -588,13 +618,15 @@ export function PortalView({ onOpenSoftphone, isCallActive }: PortalViewProps) {
                   placeholder="নাম দিয়ে খুঁজুন..."
                   value={searchQuery}
                   onChange={(e) => setSearchQuery(e.target.value)}
-                  className="p-2.5 rounded-xl border border-slate-300 bg-white text-xs w-60"
+                   className="p-2.5 rounded-xl border border-slate-300 bg-white text-xs w-full sm:w-60"
+
                 />
 
                 <select
                   value={selectedDistrict}
                   onChange={(e) => setSelectedDistrict(e.target.value)}
-                  className="p-2.5 rounded-xl border border-slate-300 bg-white text-xs"
+                   className="p-2.5 rounded-xl border border-slate-300 bg-white text-xs w-full sm:w-auto"
+
                 >
                   <option value="">সব জেলা</option>
                   <option value="ঢাকা">ঢাকা</option>
@@ -629,8 +661,9 @@ export function PortalView({ onOpenSoftphone, isCallActive }: PortalViewProps) {
                       >
                         {lawyer.n[5] || "আই"}
                       </div>
-                      <div>
-                        <b className="text-slate-900 block text-sm">{lawyer.n}</b>
+                       <div className="min-w-0">
+                         <b className="text-slate-900 block text-sm">{lawyer.n}</b>
+
                         <small className="text-slate-500 text-xs">
                           প্যানেল আইনজীবী • {lawyer.d}
                         </small>
@@ -643,7 +676,8 @@ export function PortalView({ onOpenSoftphone, isCallActive }: PortalViewProps) {
                       <div>ভাষা: {lawyer.l}</div>
                     </div>
 
-                    <div className="flex items-center justify-between pt-2 border-t border-slate-100">
+                     <div className="flex flex-col items-start gap-2 pt-2 border-t border-slate-100 sm:flex-row sm:items-center sm:justify-between">
+
                       <span className="text-[11px] text-emerald-700 font-semibold">
                         {lawyer.a ? "✓ এই সপ্তাহে পরামর্শ দিতে পারবেন" : "পরবর্তী সপ্তাহে সময় আছে"}
                       </span>
@@ -662,8 +696,10 @@ export function PortalView({ onOpenSoftphone, isCallActive }: PortalViewProps) {
         </main>
       ) : (
         /* 10. Application Wizard View (5-Step Form) */
-        <main className="apply-view portal-wrap py-10 flex-1">
-          <div className="flex items-center justify-between mb-6">
+         <main className="apply-view portal-wrap py-6 sm:py-10 flex-1">
+
+           <div className="flex flex-col items-start gap-4 mb-6 sm:flex-row sm:items-center sm:justify-between">
+
             <div>
               <button
                 onClick={() => setCurrentView("home")}
@@ -681,14 +717,16 @@ export function PortalView({ onOpenSoftphone, isCallActive }: PortalViewProps) {
 
             <button
               onClick={onOpenSoftphone}
-              className="px-4 py-2 bg-emerald-700 text-white rounded-xl font-bold text-xs flex items-center gap-1.5 shadow-sm"
+               className="w-full px-4 py-3 bg-emerald-700 text-white rounded-xl font-bold text-xs flex items-center justify-center gap-1.5 shadow-sm sm:w-auto"
+
             >
               <span>📞</span>
               <span>টাইপ না করে মুখে বলুন</span>
             </button>
           </div>
 
-          <div className="bg-white border border-slate-200 rounded-3xl p-6 sm:p-8 shadow-sm max-w-3xl mx-auto space-y-6">
+           <div className="bg-white border border-slate-200 rounded-3xl p-4 sm:p-8 shadow-sm max-w-3xl mx-auto space-y-6">
+
             <div className="p-4 rounded-2xl bg-amber-50 border border-amber-200 text-amber-900 text-xs">
               💡 <strong>পরামর্শ:</strong> আপনি যদি নিজে লিখতে বা পড়তে না পারেন, তাহলে সরাসরি আমাদের হেল্পলাইনে কল করুন। কোনো ফর্ম পূরণের প্রয়োজন নেই।
             </div>
@@ -698,7 +736,8 @@ export function PortalView({ onOpenSoftphone, isCallActive }: PortalViewProps) {
                 <label className="font-semibold text-slate-800 block mb-1">১. আপনার পূর্ণ নাম *</label>
                 <input placeholder="যেমন: ফাতেমা বেগম" className="w-full p-3 rounded-xl border border-slate-300" />
               </div>
-              <div className="grid grid-cols-2 gap-4">
+               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+
                 <div>
                   <label className="font-semibold text-slate-800 block mb-1">২. মোবাইল নম্বর *</label>
                   <input placeholder="০১XXXXXXXXX" className="w-full p-3 rounded-xl border border-slate-300" />
@@ -718,11 +757,13 @@ export function PortalView({ onOpenSoftphone, isCallActive }: PortalViewProps) {
                 <textarea rows={4} placeholder="কী ঘটেছে এবং আপনি কী সহায়তা চান..." className="w-full p-3 rounded-xl border border-slate-300" />
               </div>
 
-              <div className="pt-4 flex items-center justify-between">
+               <div className="pt-4 flex flex-col-reverse gap-2 sm:flex-row sm:items-center sm:justify-between">
+
                 <button
                   type="button"
                   onClick={() => setCurrentView("home")}
-                  className="px-4 py-2 border border-slate-300 rounded-xl font-semibold"
+                   className="w-full px-4 py-2 border border-slate-300 rounded-xl font-semibold sm:w-auto"
+
                 >
                   বাতিল করুন
                 </button>
@@ -732,7 +773,8 @@ export function PortalView({ onOpenSoftphone, isCallActive }: PortalViewProps) {
                     showToast("আপনার আবেদনটি গ্রহণ করা হয়েছে (ডেমো)। আপনার টোকেন DLAS-2025-0992।");
                     setCurrentView("home");
                   }}
-                  className="px-6 py-2.5 bg-emerald-700 text-white rounded-xl font-bold"
+                   className="w-full px-6 py-3 bg-emerald-700 text-white rounded-xl font-bold sm:w-auto"
+
                 >
                   আবেদন জমা দিন →
                 </button>
@@ -790,26 +832,31 @@ export function PortalView({ onOpenSoftphone, isCallActive }: PortalViewProps) {
         </div>
       </footer>
 
-      {/* 12. Floating SOS & Direct Call Button */}
-      <div className="floating-call-cta">
-        <button
-          onClick={onOpenSoftphone}
-          className="floating-call-btn"
-          aria-label="১৬৬৯৯ কল করুন"
-        >
-          <span className="text-xl">📞</span>
-          <span>১৬৬৯৯ কল করুন</span>
-        </button>
-      </div>
+       {/* 12. Floating SOS & Direct Call Button */}
+       {!isCallActive && (
+         <div className="floating-call-cta">
+           <button
+             onClick={onOpenSoftphone}
+             className="floating-call-btn"
+             aria-label="১৬৬৯৯ কল করুন"
+           >
+             <span className="text-xl">📞</span>
+             <span>১৬৬৯৯ কল করুন</span>
+           </button>
+         </div>
+       )}
+
 
       {/* SOS Modal */}
       {isSosOpen && (
         <div
-          className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/70 backdrop-blur-sm"
+           className="sos-backdrop fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/70 backdrop-blur-sm"
+
           onClick={() => setIsSosOpen(false)}
         >
           <div
-            className="bg-white rounded-3xl p-6 max-w-sm w-full shadow-2xl border border-slate-200 space-y-4"
+             className="sos-dialog bg-white rounded-3xl p-6 max-w-sm w-full shadow-2xl border border-slate-200 space-y-4"
+
             onClick={(e) => e.stopPropagation()}
           >
             <div className="flex items-center justify-between">
@@ -817,7 +864,8 @@ export function PortalView({ onOpenSoftphone, isCallActive }: PortalViewProps) {
                 <span>🚨</span>
                 <span>জরুরি সহায়তা নম্বরসমূহ</span>
               </h3>
-              <button onClick={() => setIsSosOpen(false)} className="text-slate-400 hover:text-slate-700 font-bold">
+               <button onClick={() => setIsSosOpen(false)} className="sos-close text-slate-400 hover:text-slate-700 font-bold">
+
                 ✕
               </button>
             </div>
@@ -871,7 +919,8 @@ export function PortalView({ onOpenSoftphone, isCallActive }: PortalViewProps) {
 
       {/* Toast Notification */}
       {toastMsg && (
-        <div className="fixed bottom-6 left-6 z-50 bg-slate-900 text-white px-4 py-3 rounded-2xl shadow-xl border border-slate-700 text-xs flex items-center gap-2 animate-bounce">
+         <div className="fixed bottom-4 left-4 right-4 z-50 bg-slate-900 text-white px-4 py-3 rounded-2xl shadow-xl border border-slate-700 text-xs flex items-center gap-2 animate-bounce sm:left-6 sm:right-auto sm:w-auto">
+
           <span>🔔</span>
           <span>{toastMsg}</span>
         </div>

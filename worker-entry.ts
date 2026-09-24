@@ -1,6 +1,6 @@
 // @ts-ignore
 import nextWorker from "./.open-next/worker.js";
-import { searchUniversalInquiries, getUniversalGeneralKnowledgeBlock } from "./lib/agent/knowledge/universal-inquiries";
+import { searchUniversalInquiries, getUniversalGeneralKnowledgeBlock } from "./lib/agent/knowledge/universal-inquiries_v2";
 import { lookupStatute } from "./lib/agent/knowledge/statutes";
 
 /**
@@ -382,7 +382,7 @@ async function handleLlmRequest(request: Request, env: any): Promise<Response> {
 
   const messages = body.messages || [];
   const groqApiKey = env.GROQ_API_KEY || "";
-  const model = env.LLM_MODEL || "qwen/qwen3.8-27b";
+  const model = env.LLM_MODEL || "openai/gpt-oss-120b";
 
   // Extract caller's latest query to dynamically match universal legal inquiries
   const lastUserMsg = [...messages].reverse().find((m: any) => m.role === "user");
@@ -398,6 +398,17 @@ async function handleLlmRequest(request: Request, env: any): Promise<Response> {
   }
 
   const matched = lastUserText ? searchUniversalInquiries(lastUserText, 2) : [];
+  const matchedStatute = lastUserText ? lookupStatute(lastUserText) : null;
+  let statuteContext = "";
+  if (matchedStatute) {
+    statuteContext = `
+[প্রযোজ্য আইন ও ধারা]:
+আইন: ${matchedStatute.actTitleBn} (${matchedStatute.actTitle})
+ধারা: ${matchedStatute.sections.slice(0, 2).join("; ")}
+সংক্ষিপ্ত প্রতিকার: ${matchedStatute.remedySummaryBn}
+`;
+  }
+
   let runtimeInquiryBlock = "";
   if (matched.length > 0) {
     runtimeInquiryBlock = `
@@ -405,22 +416,26 @@ async function handleLlmRequest(request: Request, env: any): Promise<Response> {
 ${matched
   .map(
     (item, idx) =>
-      `${idx + 1}. বিষয়: ${item.categoryBn}\n   প্রশ্ন: ${item.questionBn}\n   সরকারি তথ্য: ${item.answerBn}`,
+      `${idx + 1}. বিষয়: ${item.categoryBn}\n   প্রশ্ন: ${item.questionBn}\n   সরকারি তথ্য: ${item.answerBn}`,
   )
   .join("\n")}
 `;
   }
+
 
   const systemPrompt = `আপনি "বাংলাদেশ সরকারের বিনামূল্যে আইনি সহায়তা হেল্পলাইন (১৬৬৯৯)"-এর অত্যন্ত আন্তরিক, সহানুভূতিশীল ও অভিজ্ঞ ভার্চুয়াল আইনি পরামর্শক।
 কলার একজন সাধারণ নাগরিক যিনি ফোনে আপনার সাথে সরাসরি কথা বলছেন।
 
 আপনার মূল আচরণবিধি (Voice Guidelines):
 ১. মানুষের সাথে কথা বলার মতো অত্যন্ত সহজ, আন্তরিক, মিষ্টি ও কথ্য বাংলায় (Spoken Bengali) কথা বলুন।
-২. কলারের প্রশ্নের সরাসরি ১ থেকে ২ বাক্যে অত্যন্ত সহায়ক ও সংক্ষিপ্ত উত্তর দিন।
-৩. কোনো বুলেট পয়েন্ট, তারকা (*), হ্যাশ (#), সংখ্যা তালিকা বা জটিল আইনি ধারা উল্লেখ করবেন না। টেক্সটটি সরাসরি স্পিচ সিন্থেসাইজার (TTS) দিয়ে পাঠ করা হবে।
-৪. কলারকে আশ্বস্ত করুন এবং স্পষ্ট ও সঠিক তথ্য দিন।
+২. কলারের প্রশ্নের সরাসরি ১ থেকে ৩ বাক্যে সহায়ক ও সংক্ষিপ্ত উত্তর দিন।
+৩. প্রাসঙ্গিক হলে সর্বোচ্চ একটি আইনের নাম এবং একটি ধারা উল্লেখ করুন; পুরো আইন, সব ধারা বা দীর্ঘ তালিকা পড়বেন না। তথ্য নিশ্চিত না হলে স্পষ্টভাবে বলুন যে DLAO/আইনজীবীর যাচাই প্রয়োজন।
+৪. কোনো বুলেট পয়েন্ট, তারকা (*), হ্যাশ (#) বা জটিল তালিকা ব্যবহার করবেন না। টেক্সটটি সরাসরি স্পিচ সিনথেসাইজার (TTS) দিয়ে পাঠ করা হবে।
+৫. কলারকে আশ্বস্ত করুন এবং স্পষ্ট ও সঠিক তথ্য দিন।
+
 
 ${getUniversalGeneralKnowledgeBlock()}
+${statuteContext}
 ${runtimeInquiryBlock}
 `;
 
@@ -516,6 +531,166 @@ ${runtimeInquiryBlock}
       "X-Accel-Buffering": "no",
     },
   });
+}
+
+const AUTH_COOKIE_NAME = "auth_session";
+const AUTH_SESSION_TTL_SECONDS = 30 * 24 * 60 * 60;
+
+function jsonResponse(data: unknown, status = 200, headers: HeadersInit = {}): Response {
+  return new Response(JSON.stringify(data), {
+    status,
+    headers: { "Content-Type": "application/json", ...headers },
+  });
+}
+
+function readAuthCookie(request: Request): string | null {
+  const cookieHeader = request.headers.get("cookie") || "";
+  const value = cookieHeader
+    .split(";")
+    .map((part) => part.trim())
+    .find((part) => part.startsWith(`${AUTH_COOKIE_NAME}=`));
+  return value ? value.slice(AUTH_COOKIE_NAME.length + 1) : null;
+}
+
+function authCookie(token: string, expiresAt: Date): string {
+  return `${AUTH_COOKIE_NAME}=${token}; Path=/; HttpOnly; Secure; SameSite=Lax; Max-Age=${AUTH_SESSION_TTL_SECONDS}; Expires=${expiresAt.toUTCString()}`;
+}
+
+async function hashAuthToken(token: string): Promise<string> {
+  const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(token));
+  return Array.from(new Uint8Array(digest))
+    .map((byte) => byte.toString(16).padStart(2, "0"))
+    .join("");
+}
+
+async function getAuthenticatedUser(request: Request, db: any): Promise<any | null> {
+  const token = readAuthCookie(request);
+  if (!token || !db) return null;
+  const row = await db
+    .prepare(
+      `SELECT u.id, u.role, u.display_name, u.status, u.verification_status, u.is_mock
+       FROM auth_sessions s
+       JOIN users u ON u.id = s.user_id
+       WHERE s.token_hash = ? AND s.revoked_at IS NULL AND s.expires_at > CURRENT_TIMESTAMP
+       LIMIT 1`,
+    )
+    .bind(await hashAuthToken(token))
+    .first();
+  if (!row) return null;
+  return {
+    id: row.id,
+    displayName: row.display_name,
+    role: row.role,
+    status: row.status,
+    verificationStatus: row.verification_status,
+    isMock: Boolean(row.is_mock),
+  };
+}
+
+async function handleAuthSessionRequest(request: Request, env: any): Promise<Response> {
+  if (request.method !== "GET") return jsonResponse({ ok: false, error: "Method not allowed" }, 405);
+  return jsonResponse({ ok: true, user: await getAuthenticatedUser(request, env.DB) });
+}
+
+async function handleRoleCompleteRequest(request: Request, env: any): Promise<Response> {
+  if (request.method !== "POST") return jsonResponse({ ok: false, error: "Method not allowed" }, 405);
+  const db = env.DB;
+  if (!db) return jsonResponse({ ok: false, error: "Database unavailable" }, 503);
+
+  try {
+    const body = (await request.json()) as Record<string, any>;
+    const voiceSessionId = String(body.voiceSessionId || "").trim();
+    const docketId = String(body.docketId || "").trim();
+    const displayName = String(body.displayName || "").trim();
+    if (!voiceSessionId || !docketId || !displayName) {
+      return jsonResponse({ ok: false, error: "voiceSessionId, docketId, and displayName are required" }, 400);
+    }
+
+    const existing = await db
+      .prepare(
+        `SELECT c.citizen_user_id, u.role, u.display_name, u.status, u.verification_status, u.is_mock
+         FROM cases c JOIN users u ON u.id = c.citizen_user_id
+         WHERE c.voice_session_id = ? OR c.docket_id = ?
+         LIMIT 1`,
+      )
+      .bind(voiceSessionId, docketId)
+      .first();
+
+    const userId = existing?.citizen_user_id || `CIT-${crypto.randomUUID()}`;
+    const token = `sess-${crypto.randomUUID()}`;
+    const expiresAt = new Date(Date.now() + AUTH_SESSION_TTL_SECONDS * 1000);
+    const tokenHash = await hashAuthToken(token);
+
+    if (!existing) {
+      await db.batch([
+        db
+          .prepare(
+            `INSERT INTO users (id, role, display_name, phone, status, verification_status, is_mock)
+             VALUES (?, 'citizen', ?, ?, 'active', ?, 0)`,
+          )
+          .bind(userId, displayName, body.phone ? String(body.phone) : null, body.phone ? "pending" : "unverified"),
+        db
+          .prepare(
+            `INSERT INTO cases
+             (id, docket_id, citizen_user_id, voice_session_id, problem, has_disability, gender, district, thana, category, status, is_demo)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'submitted', 0)`,
+          )
+          .bind(
+            `CASE-${crypto.randomUUID()}`,
+            docketId,
+            userId,
+            voiceSessionId,
+            String(body.problem || ""),
+            body.hasDisability === true || body.hasDisability === 1 ? 1 : body.hasDisability === false || body.hasDisability === 0 ? 0 : null,
+            body.gender ? String(body.gender) : null,
+            body.district ? String(body.district) : null,
+            body.thana ? String(body.thana) : null,
+            body.category ? String(body.category) : null,
+          ),
+        db
+          .prepare(
+            `INSERT INTO auth_sessions (token_hash, user_id, expires_at)
+             VALUES (?, ?, ?)`,
+          )
+          .bind(tokenHash, userId, expiresAt.toISOString()),
+      ]);
+    } else {
+      await db
+        .prepare(
+          `INSERT INTO auth_sessions (token_hash, user_id, expires_at)
+           VALUES (?, ?, ?)`,
+        )
+        .bind(tokenHash, userId, expiresAt.toISOString())
+        .run();
+    }
+
+    const user = await db
+      .prepare(
+        `SELECT id, role, display_name, status, verification_status, is_mock
+         FROM users WHERE id = ? LIMIT 1`,
+      )
+      .bind(userId)
+      .first();
+
+    return jsonResponse(
+      {
+        ok: true,
+        docketId,
+        user: {
+          id: user.id,
+          displayName: user.display_name,
+          role: user.role,
+          status: user.status,
+          verificationStatus: user.verification_status,
+          isMock: Boolean(user.is_mock),
+        },
+      },
+      200,
+      { "Set-Cookie": authCookie(token, expiresAt) },
+    );
+  } catch (error) {
+    return jsonResponse({ ok: false, error: error instanceof Error ? error.message : String(error) }, 500);
+  }
 }
 
 async function handleCitizensRequest(request: Request, env: any): Promise<Response> {
@@ -633,6 +808,12 @@ export default {
     }
     if (url.pathname === "/api/llm" && request.method === "POST") {
       return handleLlmRequest(request, env);
+    }
+    if (url.pathname === "/api/auth/session") {
+      return handleAuthSessionRequest(request, env);
+    }
+    if (url.pathname === "/api/roles/complete") {
+      return handleRoleCompleteRequest(request, env);
     }
     if (url.pathname === "/api/citizens") {
       return handleCitizensRequest(request, env);

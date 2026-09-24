@@ -75,8 +75,9 @@ export default function SettingsPage() {
     <main className="min-h-screen bg-slate-50 text-slate-900 flex flex-col antialiased selection:bg-emerald-500/20 selection:text-emerald-900">
       {/* Top Header */}
       <header className="border-b border-slate-200 bg-white/95 backdrop-blur-md sticky top-0 z-50 px-4 py-3.5 shadow-xs">
-        <div className="max-w-5xl mx-auto flex items-center justify-between gap-4">
-          <div className="flex items-center gap-3">
+         <div className="max-w-5xl mx-auto flex flex-col items-stretch gap-3 sm:flex-row sm:items-center sm:justify-between sm:gap-4">
+           <div className="min-w-0 flex flex-wrap items-center gap-x-3 gap-y-1">
+
             <Link
               href="/"
               className="text-xs text-slate-600 hover:text-slate-900 flex items-center gap-1.5 transition font-medium"
@@ -90,16 +91,18 @@ export default function SettingsPage() {
             </h1>
           </div>
 
-          <div className="flex items-center gap-3">
-            <button
-              onClick={handleReset}
-              className="text-xs px-3 py-1.5 rounded-lg border border-slate-300 text-slate-700 hover:text-slate-900 hover:bg-slate-100 transition cursor-pointer font-medium"
+           <div className="flex w-full items-center gap-2 sm:w-auto sm:gap-3">
+             <button
+               onClick={handleReset}
+               className="min-h-11 flex-1 text-xs px-3 py-2 rounded-lg border border-slate-300 text-slate-700 hover:text-slate-900 hover:bg-slate-100 transition cursor-pointer font-medium sm:flex-none"
+
             >
               Reset Defaults
             </button>
             <button
               onClick={handleSave}
-              className="text-xs font-semibold px-4 py-1.5 rounded-lg bg-emerald-700 hover:bg-emerald-800 active:bg-emerald-900 text-white transition shadow-xs cursor-pointer"
+               className="min-h-11 flex-1 text-xs font-semibold px-4 py-2 rounded-lg bg-emerald-700 hover:bg-emerald-800 active:bg-emerald-900 text-white transition shadow-xs cursor-pointer sm:flex-none"
+
             >
               {saveSuccess ? "✓ Saved!" : "Save Changes"}
             </button>
@@ -108,7 +111,8 @@ export default function SettingsPage() {
       </header>
 
       {/* Main Settings Content */}
-      <div className="max-w-5xl w-full mx-auto p-4 sm:p-8 flex flex-col gap-6">
+       <div className="max-w-5xl w-full mx-auto p-3 sm:p-8 flex flex-col gap-6">
+
         
         {/* Title & Description */}
         <div>
@@ -121,10 +125,12 @@ export default function SettingsPage() {
         </div>
 
         {/* PRIMARY AGENT CONFIGURATIONS CARD (Matches Screenshot Exactly) */}
-        <section className="bg-white border border-slate-200 rounded-2xl p-6 shadow-sm flex flex-col gap-5 relative">
+         <section className="min-w-0 bg-white border border-slate-200 rounded-2xl p-4 sm:p-6 shadow-sm flex flex-col gap-5 relative">
+
           
           {/* Active Session Indicator Pill */}
-          <div className="flex items-center justify-between border-b border-slate-200 pb-3">
+           <div className="flex flex-col items-start gap-2 border-b border-slate-200 pb-3 sm:flex-row sm:items-center sm:justify-between">
+
             <div className="flex items-center gap-2">
               <span className="text-xs font-bold uppercase tracking-wider text-slate-600">
                 Agent Configuration Card
@@ -158,7 +164,7 @@ export default function SettingsPage() {
               value={systemPrompt}
               onChange={(e) => setSystemPrompt(e.target.value)}
               placeholder="Enter system prompt for the legal assistant..."
-              className="w-full rounded-xl bg-slate-50 border border-slate-300 px-4 py-3 text-sm text-slate-900 placeholder-slate-400 focus:bg-white focus:border-emerald-600 focus:outline-none focus:ring-1 focus:ring-emerald-600 transition leading-relaxed resize-y font-sans"
+              className="w-full min-w-0 rounded-xl bg-slate-50 border border-slate-300 px-4 py-3 text-sm text-slate-900 placeholder-slate-400 focus:bg-white focus:border-emerald-600 focus:outline-none focus:ring-1 focus:ring-emerald-600 transition leading-relaxed resize-y font-sans"
             />
           </div>
 
@@ -172,7 +178,7 @@ export default function SettingsPage() {
               value={greeting}
               onChange={(e) => setGreeting(e.target.value)}
               placeholder="Enter initial greeting spoken when call connects..."
-              className="w-full rounded-xl bg-slate-50 border border-slate-300 px-4 py-3 text-sm text-slate-900 placeholder-slate-400 focus:bg-white focus:border-emerald-600 focus:outline-none focus:ring-1 focus:ring-emerald-600 transition leading-relaxed resize-y font-sans"
+              className="w-full min-w-0 rounded-xl bg-slate-50 border border-slate-300 px-4 py-3 text-sm text-slate-900 placeholder-slate-400 focus:bg-white focus:border-emerald-600 focus:outline-none focus:ring-1 focus:ring-emerald-600 transition leading-relaxed resize-y font-sans"
             />
           </div>
 
@@ -186,7 +192,7 @@ export default function SettingsPage() {
               value={secondaryPrompt}
               onChange={(e) => setSecondaryPrompt(e.target.value)}
               placeholder="Enter 2nd message / IVR prompt..."
-              className="w-full rounded-xl bg-slate-50 border border-slate-300 px-4 py-3 text-sm text-slate-900 placeholder-slate-400 focus:bg-white focus:border-emerald-600 focus:outline-none focus:ring-1 focus:ring-emerald-600 transition leading-relaxed resize-y font-sans"
+              className="w-full min-w-0 rounded-xl bg-slate-50 border border-slate-300 px-4 py-3 text-sm text-slate-900 placeholder-slate-400 focus:bg-white focus:border-emerald-600 focus:outline-none focus:ring-1 focus:ring-emerald-600 transition leading-relaxed resize-y font-sans"
             />
           </div>
 
@@ -200,7 +206,7 @@ export default function SettingsPage() {
               <select
                 value={model}
                 onChange={(e) => setModel(e.target.value)}
-                className="w-full rounded-xl bg-slate-50 border border-slate-300 px-3.5 py-2.5 text-sm text-slate-900 focus:bg-white focus:border-emerald-600 focus:outline-none focus:ring-1 focus:ring-emerald-600 transition cursor-pointer"
+                className="w-full min-w-0 rounded-xl bg-slate-50 border border-slate-300 px-3.5 py-2.5 text-sm text-slate-900 focus:bg-white focus:border-emerald-600 focus:outline-none focus:ring-1 focus:ring-emerald-600 transition cursor-pointer"
               >
                 {MODELS.map((m) => (
                   <option key={m.id} value={m.id}>
@@ -218,7 +224,7 @@ export default function SettingsPage() {
               <select
                 value={voiceId}
                 onChange={(e) => setVoiceId(e.target.value)}
-                className="w-full rounded-xl bg-slate-50 border border-slate-300 px-3.5 py-2.5 text-sm text-slate-900 focus:bg-white focus:border-emerald-600 focus:outline-none focus:ring-1 focus:ring-emerald-600 transition cursor-pointer truncate"
+                className="w-full min-w-0 rounded-xl bg-slate-50 border border-slate-300 px-3.5 py-2.5 text-sm text-slate-900 focus:bg-white focus:border-emerald-600 focus:outline-none focus:ring-1 focus:ring-emerald-600 transition cursor-pointer truncate"
               >
                 {VOICES.map((v) => (
                   <option key={v.id} value={v.id}>
@@ -289,10 +295,12 @@ export default function SettingsPage() {
                 Half-Duplex Hardware AEC Guard
               </span>
               <p className="text-[11px] text-slate-500">
-                Mutes microphone input to Deepgram while assistant audio plays to prevent speaker-to-mic acoustic feedback loops.
+                 Mutes microphone input while assistant audio plays to prevent speaker-to-mic acoustic feedback loops.
+
               </p>
             </div>
-            <label className="relative inline-flex items-center cursor-pointer shrink-0">
+             <label className="relative inline-flex min-h-11 min-w-11 items-center justify-center cursor-pointer shrink-0">
+
               <input
                 type="checkbox"
                 checked={halfDuplex}
@@ -304,7 +312,8 @@ export default function SettingsPage() {
           </div>
 
           <div className="flex flex-wrap items-center justify-between gap-2 text-xs text-slate-500 pt-2 border-t border-slate-200">
-            <span>Current Pipeline: Deepgram (STT bn) → Groq LPU → Soniox (TTS bn)</span>
+             <span>Current Pipeline: Soniox (STT bn) → Groq LLM → Soniox (TTS bn)</span>
+
             <Link
               href="/"
               className="text-emerald-800 hover:text-emerald-900 font-semibold underline underline-offset-4"

@@ -9,13 +9,13 @@ import { tool } from "ai";
 import { z } from "zod";
 import { CaseCategory, docketStore } from "../memory/docket-store";
 import { lookupStatute } from "../knowledge/statutes";
-import { searchUniversalInquiries } from "../knowledge/universal-inquiries";
+import { searchUniversalInquiries } from "../knowledge/universal-inquiries_v2";
 
 export function createLegalAidTools(sessionId: string) {
   return {
     lookupUniversalInquiry: tool({
       description:
-        "Fast retrieval for universal general legal aid inquiries: eligibility criteria, application process, free panel lawyer rules, mediation requirements, helpline/offices, divorce/maintenance, land disputes, labor wages, disability rights, cyber blackmail, or child custody.",
+        "Fast retrieval for universal general legal aid inquiries with concise act/section context: eligibility, application, free panel lawyer rules, mediation, helpline/offices, family, land, labor wages, disability, cyber blackmail, or child custody.",
       inputSchema: z.object({
         query: z
           .string()
@@ -31,6 +31,7 @@ export function createLegalAidTools(sessionId: string) {
         }
 
         const best = matches[0];
+        const statute = lookupStatute(query);
 
         // Trigger urgency in docket if matching a sensitive safety/emergency scenario
         if (best.isUrgent) {
@@ -51,8 +52,18 @@ export function createLegalAidTools(sessionId: string) {
           category: best.categoryBn,
           matchedQuestion: best.questionBn,
           verifiedAnswerBn: best.answerBn,
-          isUrgent: best.isUrgent ?? false,
-          systemAction: best.systemAction ?? null,
+           isUrgent: best.isUrgent ?? false,
+           systemAction: best.systemAction ?? null,
+           legalBasis: statute
+             ? {
+                 actTitle: statute.actTitle,
+                 actTitleBn: statute.actTitleBn,
+                 relevantSections: statute.sections.slice(0, 2),
+               }
+             : null,
+           responseGuidance:
+             "উত্তরে ১-৩টি স্বাভাবিক বাংলা বাক্য দিন; প্রাসঙ্গিক হলে সর্বোচ্চ একটি আইন ও একটি ধারা উল্লেখ করুন, পুরো তালিকা না দিয়ে পরবর্তী নিরাপদ পদক্ষেপ বলুন।",
+
         };
       },
     }),

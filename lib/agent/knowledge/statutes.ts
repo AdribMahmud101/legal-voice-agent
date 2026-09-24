@@ -136,6 +136,9 @@ export function lookupStatute(categoryOrKeyword: string): LegalStatute | null {
   if (/জামিন|bail|গ্রেপ্তার|arrest|পুলিশ|hajat|faujdari/i.test(query)) {
     return BANGLADESH_LEGAL_STATUTES.criminal_bail;
   }
+  if (/যৌতুক.{0,8}দাবি|dowry.{0,8}demand/i.test(query)) {
+    return null;
+  }
   if (/মারধর|নির্যাতন|যৌতুক|dowry|violence|স্বামীর|shishu|nari|domestic/i.test(query)) {
     return BANGLADESH_LEGAL_STATUTES.domestic_violence;
   }
@@ -145,7 +148,7 @@ export function lookupStatute(categoryOrKeyword: string): LegalStatute | null {
   if (/বেতন|মজুর|শ্রমিক|ছাঁটাই|factory|labor|salary|wage/i.test(query)) {
     return BANGLADESH_LEGAL_STATUTES.labor_wage;
   }
-  if (/দেনমোহর|ডিভোর্স|তালাক|খোরপোষ|বাচ্চা|সন্তান|dower|family/i.test(query)) {
+  if (/দেনমোহর|ডিভোর্স|তালাক|খোরপোষ|বাচ্চা|সন্তান|ফ্যামিলি|পারিবারিক|dower|family/i.test(query)) {
     return BANGLADESH_LEGAL_STATUTES.family_dower_maintenance;
   }
   if (/সাইবার|ব্ল্যাকমেইল|ছবি|ফেসবুক|ইন্টারনেট|cyber|blackmail|harassment/i.test(query)) {

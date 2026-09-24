@@ -4,7 +4,7 @@
  * Implements:
  * - High-speed multi-step agentic loop (`stopWhen: isStepCount(4)`)
  * - Native Zod function calling with zero-overhead execution
- * - Direct connection to Groq LPU (`openai/gpt-oss-20b`) for sub-50ms inference
+ * - Direct connection to Groq LPU (`openai/gpt-oss-120b`) for high-quality reasoning
  * - Empathetic, authoritative, conversational Bengali voice persona
  */
 
@@ -15,7 +15,7 @@ import { docketStore } from "../memory/docket-store";
 import {
   getUniversalGeneralKnowledgeBlock,
   searchUniversalInquiries,
-} from "../knowledge/universal-inquiries";
+} from "../knowledge/universal-inquiries_v2";
 
 const groqClient = createOpenAI({
   baseURL: process.env.LLM_PROVIDER_URL || "https://api.groq.com/openai/v1",
@@ -57,7 +57,7 @@ export async function runLegalAgentSession({
   sessionId: string;
   messages: ModelMessage[];
 }) {
-  const modelName = process.env.LLM_MODEL || "openai/gpt-oss-20b";
+  const modelName = process.env.LLM_MODEL || "openai/gpt-oss-120b";
   const tools = createLegalAidTools(sessionId);
   const currentDocket = docketStore.getOrCreate(sessionId);
 

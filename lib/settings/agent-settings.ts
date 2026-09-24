@@ -14,9 +14,9 @@ export interface AgentSettings {
 }
 
 export const MODELS = [
-  { id: "qwen/qwen3.8-27b", name: "qwen/qwen3.8-27b (Recommended - Natural Bengali & Fast)" },
-  { id: "openai/gpt-oss-20b", name: "openai/gpt-oss-20b (Groq LPU)" },
-  { id: "openai/gpt-oss-120b", name: "openai/gpt-oss-120b (High Reasoning)" },
+  { id: "openai/gpt-oss-120b", name: "openai/gpt-oss-120b (Recommended - Legal Reasoning)" },
+  { id: "qwen/qwen3.8-27b", name: "qwen/qwen3.8-27b (Natural Bengali & Fast)" },
+  { id: "openai/gpt-oss-20b", name: "openai/gpt-oss-20b (Fast Groq LPU)" },
   { id: "allam-2-7b", name: "allam-2-7b (Fast Lightweight)" },
 ];
 
@@ -38,7 +38,7 @@ export const DEFAULT_AGENT_SETTINGS: AgentSettings = {
     "বাংলাদেশ সরকারের বিনামূল্যে আইনি সহায়তা হেল্পলাইনে আপনাকে স্বাগতম।\n" +
     "আপনাকে সঠিক সেবা প্রদান এবং ভবিষ্যতের প্রয়োজনে আমাদের এই কথোপকথনটি রেকর্ড করা হচ্ছে।",
   secondaryPrompt: "সাধারণ তথ্য জানতে ১ চাপুন, কিন্তু কোনো সমস্যা বা অভিযোগ জানাতে ২ চাপুন।",
-  llmModel: "qwen/qwen3.8-27b",
+  llmModel: "openai/gpt-oss-120b",
   voiceId: "Priya",
   language: "bn",
   halfDuplex: true,

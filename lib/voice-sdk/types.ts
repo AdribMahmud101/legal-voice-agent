@@ -6,29 +6,27 @@
  * so the pipeline modules remain recognizable.
  *
  * Secrets are kept server-side: the LLM goes through a Next.js SSE proxy and
- * TTS through a local WebSocket proxy. The Deepgram STT key is fetched at
- * runtime from `/api/voice/config` (never inlined into the bundle).
+ * STT/TTS through same-origin WebSocket proxies.
  */
+
+import type { SessionUser } from "../auth/roles";
 
 export type SessionMode = "direct";
 
 export interface SdkConfig {
   mode?: SessionMode;
-  /** Override the STT provider. Only "deepgram" is supported in this port. */
-  sttProvider?: "deepgram";
-  /** Optional override of the Deepgram model id (default: nova-3-general). */
+  /** Override the STT provider. Only "soniox" is supported in this port. */
+  sttProvider?: "soniox";
+  /** Optional override of the Soniox model id. */
   sttModel?: string;
-  /** Optional override of the Deepgram API key. When omitted, the client
-   *  fetches the current key + defaults from /api/voice/config. */
-  deepgramApiKey?: string;
-  /** Optional override of the Deepgram listen language code (default: en). */
+  /** Optional override of the STT listen language code (default: bn). */
   language?: string;
   /** OpenAI-compatible chat completions base URL. Cloud-only port always
    *  routes through the local SSE proxy; this is retained for testing. */
   llmBaseUrl?: string;
   /** Next.js route that proxies to the LLM provider (default: /api/llm). */
   llmProxyUrl?: string;
-  /** Optional override of the LLM model id (default: openai/gpt-oss-20b). */
+  /** Optional override of the LLM model id (default: openai/gpt-oss-120b). */
   llmModel?: string;
   /** Local WebSocket TTS proxy URL (default: ws://<host>:8200/v1/tts). */
   ttsProxyUrl?: string;
@@ -75,6 +73,7 @@ export type SdkEvent =
         address?: string | null;
       };
     }
+  | { type: "intake_complete"; docketId: string; user: SessionUser }
   | { type: "error"; message: string }
   | { type: "system"; text: string };
 

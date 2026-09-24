@@ -1,8 +1,8 @@
 /**
  * Legal Voice Agent — Web SDK Client Orchestrator (Cloud Models)
  *
- * Resolves runtime configuration (model ids, voice, Deepgram STT key) from the
- * local /api/voice/config endpoint, merges caller overrides, validates that the
+ * Resolves runtime configuration (model ids and voice) from the local
+ * /api/voice/config endpoint, merges caller overrides, validates that the
  * server-side prerequisites exist, and drives a DirectSession voice pipeline.
  */
 
@@ -10,9 +10,8 @@ import { DirectSession } from "./direct/direct_session";
 import { EventEmitter, SdkConfig, VoiceSession } from "./types";
 
 export interface VoiceRuntimeConfig {
-  sttProvider: string;
+  sttProvider: "soniox";
   sttModel: string;
-  sttApiKey: string;
   llmModel: string;
   llmProxyUrl: string;
   ttsProvider: string;
@@ -29,6 +28,7 @@ const DEFAULT_CONFIG_URL = "/api/voice/config";
 export class VoiceAgent implements VoiceSession {
   private emit: EventEmitter;
   private session: DirectSession | null = null;
+  private startEpoch: number = 0;
 
   constructor(emit: EventEmitter) {
     this.emit = emit;
@@ -36,18 +36,20 @@ export class VoiceAgent implements VoiceSession {
 
   async start(config: SdkConfig): Promise<void> {
     this.stop();
+    const startEpoch = this.startEpoch;
 
     this.emit({ type: "system", text: "Loading voice runtime config..." });
 
     const runtime = await this.fetchRuntimeConfig();
+    if (startEpoch !== this.startEpoch) return;
 
     // Merge: explicit caller overrides win over the fetched defaults.
-    const merged: SdkConfig = {
-      ...config,
-      sttProvider: "deepgram",
-      sttModel: config.sttModel ?? runtime.sttModel,
-      deepgramApiKey: config.deepgramApiKey ?? runtime.sttApiKey,
-      llmModel: config.llmModel ?? runtime.llmModel,
+     const merged: SdkConfig = {
+       ...config,
+       sttProvider: "soniox",
+       sttModel: config.sttModel ?? runtime.sttModel,
+       llmModel: config.llmModel ?? runtime.llmModel,
+
       llmProxyUrl: config.llmProxyUrl ?? runtime.llmProxyUrl,
       voiceId: config.voiceId ?? runtime.ttsVoiceId,
       ttsProxyUrl: config.ttsProxyUrl ?? runtime.ttsProxyUrl,
@@ -55,15 +57,8 @@ export class VoiceAgent implements VoiceSession {
       halfDuplex: config.halfDuplex ?? true,
     };
 
-    if (!merged.deepgramApiKey) {
-      this.emit({
-        type: "error",
-        message: "Deepgram STT key missing. Configure DEEPGRAM_API_KEY in the server.",
-      });
-      return;
-    }
+     if (!merged.ttsProxyUrl) {
 
-    if (!merged.ttsProxyUrl) {
       if (runtime.ttsProxyError) {
         this.emit({
           type: "error",
@@ -84,6 +79,7 @@ export class VoiceAgent implements VoiceSession {
   }
 
   stop(): void {
+    this.startEpoch += 1;
     if (this.session) {
       this.session.stop();
       this.session = null;

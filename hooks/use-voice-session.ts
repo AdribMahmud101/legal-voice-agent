@@ -1,7 +1,8 @@
 "use client";
 
-import { useCallback, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { VoiceAgent } from "@/lib/voice-sdk/client";
+import type { SessionUser } from "@/lib/auth/roles";
 import type { SdkConfig, SdkEvent } from "@/lib/voice-sdk/types";
 
 export type SessionPhase =
@@ -53,6 +54,7 @@ export interface IntakeData {
 interface UseVoiceSessionResult {
   phase: SessionPhase;
   sessionId: string | null;
+  currentUser: SessionUser | null;
   activeTool: string | null;
   isMicMuted: boolean;
   intakeStep: IntakeStep;
@@ -72,6 +74,7 @@ export function useVoiceSession(onSdkEvent?: (evt: SdkEvent) => void): UseVoiceS
   const agentRef = useRef<VoiceAgent | null>(null);
   const [phase, setPhase] = useState<SessionPhase>("idle");
   const [sessionId, setSessionId] = useState<string | null>(null);
+  const [currentUser, setCurrentUser] = useState<SessionUser | null>(null);
   const [activeTool, setActiveTool] = useState<string | null>(null);
   const [isMicMuted, setIsMicMuted] = useState(false);
   const [intakeStep, setIntakeStep] = useState<IntakeStep>("idle");
@@ -83,6 +86,19 @@ export function useVoiceSession(onSdkEvent?: (evt: SdkEvent) => void): UseVoiceS
 
   const pushLog = useCallback((entry: LogEntry) => {
     setLogs((prev) => [...prev.slice(-(MAX_LOGS - 1)), entry]);
+  }, []);
+
+  useEffect(() => {
+    let mounted = true;
+    void fetch("/api/auth/session", { cache: "no-store" })
+      .then((response) => response.json())
+      .then((payload: { user?: SessionUser | null }) => {
+        if (mounted && payload.user) setCurrentUser(payload.user);
+      })
+      .catch(() => undefined);
+    return () => {
+      mounted = false;
+    };
   }, []);
 
   const handleEvent = useCallback(
@@ -131,6 +147,19 @@ export function useVoiceSession(onSdkEvent?: (evt: SdkEvent) => void): UseVoiceS
             setActiveTool(null);
             setSessionId(null);
           }
+          break;
+        }
+         case "intake_complete": {
+           setCurrentUser(evt.user);
+           agentRef.current?.stop();
+
+          agentRef.current = null;
+          setPhase("idle");
+          setIntakeStep("idle");
+          setIntakeData({});
+          setIsMicMuted(false);
+          setActiveTool(null);
+          setSessionId(null);
           break;
         }
         case "error": {
@@ -185,6 +214,8 @@ export function useVoiceSession(onSdkEvent?: (evt: SdkEvent) => void): UseVoiceS
 
   const start = useCallback(
     async (config?: Partial<SdkConfig>) => {
+      agentRef.current?.stop();
+      agentRef.current = null;
       setPhase("starting");
       setIntakeStep("idle");
       setIntakeData({});
@@ -198,8 +229,20 @@ export function useVoiceSession(onSdkEvent?: (evt: SdkEvent) => void): UseVoiceS
       if (typeof window !== "undefined") {
         (window as any).__voiceAgent = agent;
       }
-      await agent.start(config ?? {});
-      setSessionId(agent.sessionId);
+      try {
+        await agent.start(config ?? {});
+        if (agentRef.current !== agent) {
+          agent.stop();
+          return;
+        }
+        setSessionId(agent.sessionId);
+      } catch (error) {
+        if (agentRef.current === agent) {
+          agent.stop();
+          agentRef.current = null;
+        }
+        throw error;
+      }
     },
     [handleEvent],
   );
@@ -221,5 +264,5 @@ export function useVoiceSession(onSdkEvent?: (evt: SdkEvent) => void): UseVoiceS
     setSessionId(null);
   }, []);
 
-  return { phase, sessionId, activeTool, isMicMuted, intakeStep, intakeData, transcript, logs, metrics, metricHistory, start, sendMessage, stop };
+  return { phase, sessionId, currentUser, activeTool, isMicMuted, intakeStep, intakeData, transcript, logs, metrics, metricHistory, start, sendMessage, stop };
 }

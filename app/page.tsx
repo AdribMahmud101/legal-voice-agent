@@ -12,9 +12,11 @@ export default function Home() {
   const [callDuration, setCallDuration] = useState(0);
 
   const {
-    phase,
-    sessionId,
-    activeTool,
+     phase,
+     sessionId,
+     currentUser,
+     activeTool,
+
     intakeStep,
     intakeData,
     transcript,
@@ -73,8 +75,10 @@ export default function Home() {
     <>
       {/* 1. Main Official Government Portal View */}
       <PortalView
-        onOpenSoftphone={handleOpenSoftphone}
-        isCallActive={isCallActive}
+         onOpenSoftphone={handleOpenSoftphone}
+         isCallActive={isCallActive}
+         currentUser={currentUser}
+
       />
 
       {/* 2. Softphone Simulator Popup Modal */}
@@ -82,8 +86,10 @@ export default function Home() {
         isOpen={isSoftphoneOpen}
         onClose={() => setIsSoftphoneOpen(false)}
         phase={phase}
-        sessionId={sessionId}
-        activeTool={activeTool}
+         sessionId={sessionId}
+         currentUser={currentUser}
+         activeTool={activeTool}
+
         intakeStep={intakeStep}
         intakeData={intakeData}
         transcript={transcript}

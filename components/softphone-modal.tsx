@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { playDtmfTone } from "@/lib/audio/dtmf";
+import { ROLE_LABELS, type SessionUser } from "@/lib/auth/roles";
 import type { SessionPhase, IntakeStep, IntakeData, TranscriptEntry, LatencyMetrics } from "@/hooks/use-voice-session";
 import type { CaseDocket } from "@/lib/agent/memory/docket-store";
 
@@ -60,6 +61,7 @@ interface SoftphoneModalProps {
   onClose: () => void;
   phase: SessionPhase;
   sessionId: string | null;
+  currentUser: SessionUser | null;
   activeTool: string | null;
   intakeStep: IntakeStep;
   intakeData: IntakeData;
@@ -78,6 +80,7 @@ export function SoftphoneModal({
   onClose,
   phase,
   sessionId,
+  currentUser,
   activeTool,
   intakeStep,
   intakeData,
@@ -191,31 +194,42 @@ export function SoftphoneModal({
       }}
     >
       <div
-        className="bg-white rounded-3xl shadow-2xl border border-slate-200 w-full max-w-6xl max-h-[92vh] flex flex-col overflow-hidden"
+         className="bg-white rounded-3xl shadow-2xl border border-slate-200 w-full max-w-6xl max-h-[calc(100dvh-1.5rem)] sm:max-h-[calc(100dvh-2.5rem)] flex flex-col overflow-hidden"
+
         onClick={(e) => e.stopPropagation()}
       >
         {/* Softphone Dialog Top Header */}
-        <div className="bg-emerald-950 text-white px-5 py-3.5 flex items-center justify-between border-b border-emerald-900 shrink-0">
-          <div className="flex items-center gap-3">
+         <div className="bg-emerald-950 text-white px-3 sm:px-5 py-3 flex sm:py-3.5 flex-wrap sm:flex-nowrap items-center justify-between gap-2 border-b border-emerald-900 shrink-0">
+           <div className="min-w-0 flex-1 flex items-center gap-3">
+
             <span className="text-2xl p-1.5 bg-emerald-900/60 rounded-xl">📞</span>
-            <div>
-              <div className="flex items-center gap-2">
-                <h3 className="font-bold text-sm tracking-wide">
+             <div className="min-w-0">
+               <div className="flex min-w-0 items-center gap-2">
+                 <h3 className="min-w-0 break-words font-bold text-xs sm:text-sm tracking-wide">
+
                   ১৬৬৯৯ জাতীয় আইনি সহায়তা হেল্পলাইন
                 </h3>
-                <span className="text-[10px] bg-emerald-800 text-emerald-200 px-2 py-0.5 rounded-full font-mono">
+                 <span className="hidden sm:inline-flex shrink-0 text-[10px] bg-emerald-800 text-emerald-200 px-2 py-0.5 rounded-full font-mono">
+
                   NLASO Telephony Simulator
                 </span>
               </div>
-              <p className="text-[11px] text-emerald-300">
-                গণপ্রজাতন্ত্রী বাংলাদেশ সরকার • আইন ও বিচার বিভাগ • ১০০% বিনামূল্যে সেবা
-              </p>
+               <p className="hidden sm:block text-[11px] text-emerald-300">
+                 গণপ্রজাতন্ত্রী বাংলাদেশ সরকার • আইন ও বিচার বিভাগ • ১০০% বিনামূল্যে সেবা
+               </p>
+               {currentUser && (
+                 <p className="mt-1 truncate text-[10px] font-semibold text-emerald-200">
+                   লগইন: {currentUser.displayName} · {ROLE_LABELS[currentUser.role]}
+                 </p>
+               )}
+
             </div>
           </div>
 
-          <div className="flex items-center gap-2">
-            {isCallActive && (
-              <span className="flex items-center gap-1.5 px-3 py-1 bg-emerald-900/80 border border-emerald-700 rounded-full text-xs font-mono font-bold text-emerald-200">
+           <div className="ml-auto flex shrink-0 items-center gap-2">
+             {isCallActive && (
+               <span className="hidden sm:flex items-center gap-1.5 px-3 py-1 bg-emerald-900/80 border border-emerald-700 rounded-full text-xs font-mono font-bold text-emerald-200">
+
                 <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
                 কল চলছে: {formatDuration(callDuration)}
               </span>
@@ -223,11 +237,13 @@ export function SoftphoneModal({
 
             <button
               onClick={onClose}
-              className="px-3 py-1.5 bg-emerald-900/60 hover:bg-emerald-800 text-white text-xs font-semibold rounded-xl border border-emerald-700/60 transition cursor-pointer flex items-center gap-1"
+               className="min-h-11 min-w-11 px-2 sm:px-3 py-2 bg-emerald-900/60 hover:bg-emerald-800 text-white text-xs font-semibold rounded-xl border border-emerald-700/60 transition cursor-pointer flex items-center justify-center gap-1"
+
               title="মিনিমাইজ করে সাইট ব্রাউজ করুন"
             >
               <span>🔽</span>
-              <span>মিনিমাইজ</span>
+               <span className="hidden sm:inline">মিনিমাইজ</span>
+
             </button>
 
             <button
@@ -242,7 +258,8 @@ export function SoftphoneModal({
                 }
                 onClose();
               }}
-              className="w-8 h-8 rounded-xl bg-emerald-900/60 hover:bg-rose-900/80 text-white flex items-center justify-center font-bold text-sm transition cursor-pointer"
+               className="w-11 h-11 rounded-xl bg-emerald-900/60 hover:bg-rose-900/80 text-white flex items-center justify-center font-bold text-sm transition cursor-pointer"
+
               title="বন্ধ করুন"
             >
               ✕
@@ -251,9 +268,10 @@ export function SoftphoneModal({
         </div>
 
         {/* Softphone Dialog Main Workspace */}
-        <div className="flex-1 overflow-y-auto p-4 sm:p-6 grid grid-cols-1 lg:grid-cols-12 gap-5 bg-slate-50/70">
-          {/* LEFT COLUMN: Dialpad & Voice Controls (5 cols) */}
-          <div className="lg:col-span-5 flex flex-col gap-4">
+         <div className="flex-1 overflow-y-auto p-3 sm:p-6 grid grid-cols-1 md:grid-cols-12 gap-4 sm:gap-5 bg-slate-50/70">
+           {/* LEFT COLUMN: Dialpad & Voice Controls (5 cols) */}
+           <div className="md:col-span-5 flex flex-col gap-4 min-w-0">
+
             {/* Phone Screen & Live Status */}
             <div className="bg-slate-900 text-white rounded-3xl p-5 shadow-inner border border-slate-800 flex flex-col items-center justify-center gap-2 relative overflow-hidden">
               <div className="absolute top-3 left-4 flex items-center gap-2">
@@ -531,13 +549,15 @@ export function SoftphoneModal({
           </div>
 
           {/* RIGHT COLUMN: Live Docket & Transcript (7 cols) */}
-          <div className="lg:col-span-7 flex flex-col gap-4">
-            {/* Tab Navigation */}
-            <div className="flex items-center justify-between border-b border-slate-200 pb-2">
-              <div className="flex items-center gap-2">
+           <div className="md:col-span-7 flex min-w-0 flex-col gap-4">
+             {/* Tab Navigation */}
+             <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-200 pb-2">
+               <div className="flex min-w-0 flex-1 items-center gap-2">
+
                 <button
                   onClick={() => setActiveTab("docket")}
-                  className={`px-3.5 py-1.5 rounded-xl text-xs font-semibold transition cursor-pointer ${
+                   className={`min-h-11 flex-1 px-2.5 sm:px-3.5 py-2 rounded-xl text-xs font-semibold transition cursor-pointer sm:flex-none ${
+
                     activeTab === "docket"
                       ? "bg-emerald-700 text-white shadow-xs"
                       : "text-slate-600 hover:text-slate-900 bg-slate-100 hover:bg-slate-200"
@@ -547,7 +567,8 @@ export function SoftphoneModal({
                 </button>
                 <button
                   onClick={() => setActiveTab("transcript")}
-                  className={`px-3.5 py-1.5 rounded-xl text-xs font-semibold transition cursor-pointer ${
+                   className={`min-h-11 flex-1 px-2.5 sm:px-3.5 py-2 rounded-xl text-xs font-semibold transition cursor-pointer sm:flex-none ${
+
                     activeTab === "transcript"
                       ? "bg-emerald-700 text-white shadow-xs"
                       : "text-slate-600 hover:text-slate-900 bg-slate-100 hover:bg-slate-200"
@@ -558,7 +579,8 @@ export function SoftphoneModal({
               </div>
 
               {metrics && (
-                <span className="text-[11px] font-mono text-slate-600 bg-slate-100 px-2.5 py-1 rounded-lg border border-slate-200">
+                 <span className="max-w-full truncate text-[11px] font-mono text-slate-600 bg-slate-100 px-2.5 py-1 rounded-lg border border-slate-200">
+
                   Latency: <span className="text-emerald-700 font-bold">{metrics.total_voice_latency_ms}ms</span>
                 </span>
               )}
@@ -567,8 +589,9 @@ export function SoftphoneModal({
             {/* TAB 1: Real-Time Structured Case Docket */}
             {activeTab === "docket" && (
               <div className="bg-white border border-slate-200 rounded-3xl p-5 shadow-sm flex flex-col gap-4">
-                <div className="flex items-center justify-between border-b border-slate-200 pb-3">
-                  <div className="flex items-center gap-2">
+                 <div className="flex flex-col items-start gap-2 border-b border-slate-200 pb-3 sm:flex-row sm:items-center sm:justify-between">
+                   <div className="flex min-w-0 items-center gap-2">
+
                     <span className="text-xl">📁</span>
                     <div>
                       <h4 className="text-sm font-bold text-slate-900">
@@ -580,7 +603,8 @@ export function SoftphoneModal({
                     </div>
                   </div>
                   {docket?.docketId ? (
-                    <div className="text-right">
+                     <div className="text-left sm:text-right">
+
                       <span className="text-[9px] uppercase font-semibold text-slate-500 block">
                         অফিসিয়াল ডকেট আইডি
                       </span>
@@ -595,7 +619,8 @@ export function SoftphoneModal({
                   )}
                 </div>
 
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                 <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+
                   {/* Caller Name */}
                   <div className="p-3 rounded-2xl bg-slate-50 border border-slate-200">
                     <span className="text-[10px] font-semibold uppercase tracking-wider text-slate-500">
@@ -680,7 +705,8 @@ export function SoftphoneModal({
                   </div>
 
                   {/* Legal Category */}
-                  <div className="p-3 rounded-2xl bg-slate-50 border border-slate-200 sm:col-span-2">
+                   <div className="p-3 rounded-2xl bg-slate-50 border border-slate-200 md:col-span-2">
+
                     <span className="text-[10px] font-semibold uppercase tracking-wider text-slate-500">
                       মামলা / আইনি বিষয়ের ক্যাটাগরি
                     </span>
@@ -714,7 +740,8 @@ export function SoftphoneModal({
 
             {/* TAB 2: Live Conversation Transcript */}
             {activeTab === "transcript" && (
-              <div className="bg-white border border-slate-200 rounded-3xl p-5 shadow-sm flex flex-col h-[400px]">
+               <div className="bg-white border border-slate-200 rounded-3xl p-4 sm:p-5 shadow-sm flex flex-col h-[min(400px,55dvh)] min-h-[260px]">
+
                 <div className="text-xs font-semibold text-slate-600 border-b border-slate-200 pb-2 mb-3 flex items-center justify-between">
                   <span>কথোপকথন হিস্টোরি (Live Transcript)</span>
                   <span className="text-[10px] text-slate-500">রিয়েল-টাইম অডিও স্ট্রিম</span>
@@ -775,7 +802,8 @@ export function SoftphoneModal({
                       }
                       setActiveTab("transcript");
                     }}
-                    className="text-[10px] font-medium bg-slate-100 hover:bg-emerald-50 hover:text-emerald-800 hover:border-emerald-300 border border-slate-200 px-2 py-1 rounded-lg transition cursor-pointer"
+                     className="min-h-9 text-[10px] font-medium bg-slate-100 hover:bg-emerald-50 hover:text-emerald-800 hover:border-emerald-300 border border-slate-200 px-2 py-1.5 rounded-lg transition cursor-pointer"
+
                   >
                     📌 {s.title}
                   </button>

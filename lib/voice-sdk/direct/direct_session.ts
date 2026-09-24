@@ -2,7 +2,7 @@
  * Direct Serverless Embedded Session (In-Process Cloud AI Streaming) — Cloud-Only Port
  *
  * Legal Voice Agent high-octane architecture:
- * - openai/gpt-oss-20b with Eager fast-start clause chunking (LLM via /api/llm SSE proxy)
+ * - openai/gpt-oss-120b with Eager fast-start clause chunking (LLM via /api/llm SSE proxy)
  * - Soniox Real-Time TTS (v2) via the same-origin server-side proxy
  * - Soniox Real-Time STT (stt-rt-v3) with semantic endpoint detection
  * - Formant Neural VAD & Smart-Turn Thought Boundary Analyzer
@@ -19,6 +19,7 @@ import { EventEmitter, SdkConfig, VoiceSession } from "../types";
 import { SmartTurnAnalyzer } from "./smart_turn";
 import { SonioxStt } from "./soniox_stt";
 import { TurnPhaseStateMachine } from "./turn_phase";
+import type { SessionUser } from "../../auth/roles";
 import { RealtimeVad, VadEvent } from "./vad";
 import { DeepgramWsTts } from "./ws_tts";
 
@@ -232,11 +233,19 @@ class StreamingAudioPlayer {
 let cachedGreetingAudioBuf: AudioBuffer | null = null;
 let cachedIvrAudioBuf: AudioBuffer | null = null;
 let cachedOption1AudioBuf: AudioBuffer | null = null;
+let cachedIntakeCompleteBuf: AudioBuffer | null = null;
 let cachedInactivityAppQueryBuf: AudioBuffer | null = null;
 let cachedInactivityNoAckBuf: AudioBuffer | null = null;
 let cachedInactivityHangupBuf: AudioBuffer | null = null;
 
-type AudioKind = "greeting" | "ivr" | "option1" | "inactivity_app_query" | "inactivity_no_ack" | "inactivity_hangup";
+type AudioKind =
+  | "greeting"
+  | "ivr"
+  | "option1"
+  | "intake_complete"
+  | "inactivity_app_query"
+  | "inactivity_no_ack"
+  | "inactivity_hangup";
 
 async function getPreRecordedAudioBuffer(
   audioCtx: AudioContext,
@@ -245,16 +254,20 @@ async function getPreRecordedAudioBuffer(
   try {
     if (kind === "greeting" && cachedGreetingAudioBuf) return cachedGreetingAudioBuf;
     if (kind === "ivr" && cachedIvrAudioBuf) return cachedIvrAudioBuf;
-    if (kind === "option1" && cachedOption1AudioBuf) return cachedOption1AudioBuf;
-    if (kind === "inactivity_app_query" && cachedInactivityAppQueryBuf) return cachedInactivityAppQueryBuf;
+     if (kind === "option1" && cachedOption1AudioBuf) return cachedOption1AudioBuf;
+     if (kind === "intake_complete" && cachedIntakeCompleteBuf) return cachedIntakeCompleteBuf;
+     if (kind === "inactivity_app_query" && cachedInactivityAppQueryBuf) return cachedInactivityAppQueryBuf;
+
     if (kind === "inactivity_no_ack" && cachedInactivityNoAckBuf) return cachedInactivityNoAckBuf;
     if (kind === "inactivity_hangup" && cachedInactivityHangupBuf) return cachedInactivityHangupBuf;
 
     const urls: Record<AudioKind, string> = {
       greeting: "/audio/greeting.wav",
       ivr: "/audio/ivr_menu.wav",
-      option1: "/audio/option1_prompt.wav",
-      inactivity_app_query: "/audio/inactivity_app_query.wav",
+       option1: "/audio/option1_prompt.wav",
+       intake_complete: "/audio/intake_complete.wav",
+       inactivity_app_query: "/audio/inactivity_app_query.wav",
+
       inactivity_no_ack: "/audio/inactivity_no_ack.wav",
       inactivity_hangup: "/audio/inactivity_hangup.wav",
     };
@@ -264,8 +277,10 @@ async function getPreRecordedAudioBuffer(
     const decoded = await audioCtx.decodeAudioData(arrayBuf);
     if (kind === "greeting") cachedGreetingAudioBuf = decoded;
     if (kind === "ivr") cachedIvrAudioBuf = decoded;
-    if (kind === "option1") cachedOption1AudioBuf = decoded;
-    if (kind === "inactivity_app_query") cachedInactivityAppQueryBuf = decoded;
+     if (kind === "option1") cachedOption1AudioBuf = decoded;
+     if (kind === "intake_complete") cachedIntakeCompleteBuf = decoded;
+     if (kind === "inactivity_app_query") cachedInactivityAppQueryBuf = decoded;
+
     if (kind === "inactivity_no_ack") cachedInactivityNoAckBuf = decoded;
     if (kind === "inactivity_hangup") cachedInactivityHangupBuf = decoded;
     return decoded;
@@ -405,6 +420,8 @@ export class DirectSession implements VoiceSession {
   private fallbackTimer: ReturnType<typeof setTimeout> | null = null;
   private speechFinalDebounceTimer: ReturnType<typeof setTimeout> | null = null;
   private conversationHistory: Array<{ role: string; content: string }> = [];
+  private activityEpoch: number = 0;
+  private userMessageQueue: Promise<void> = Promise.resolve();
   private emit: EventEmitter;
 
   private sttKeepAliveTimer: ReturnType<typeof setInterval> | null = null;
@@ -552,7 +569,7 @@ export class DirectSession implements VoiceSession {
     this.isAssistantSpeakingOrPlaying = false;
     this.greetingSpoken = false;
     const llmUrl = (config.llmProxyUrl || "/api/llm").replace(/\/+$/, "");
-    const llmModel = config.llmModel || "qwen/qwen3.8-27b";
+    const llmModel = config.llmModel || "openai/gpt-oss-120b";
     const language = config.language || "bn";
     const voiceId = config.voiceId || "Priya";
     const ttsProxyUrl =
@@ -748,6 +765,7 @@ export class DirectSession implements VoiceSession {
 
     if (!fullText || fullText.length === 0) return;
 
+    const turnEpoch = ++this.activityEpoch;
     this.accumulatedSegments = [];
     this.currentTranscript = "";
 
@@ -757,64 +775,11 @@ export class DirectSession implements VoiceSession {
       return;
     }
 
-    // Any user speech resets inactivity watch (they're still engaged)
     if (this.generalQueryMode) {
       this.clearInactivityTimer();
-
-      // If we're in the "app query" phase, classify yes/no/other
       if (this.inactivityPhase === "hangup_warn") {
+        if (await this.handleInactivityWarningInput(fullText)) return;
         this.inactivityPhase = "off";
-        const yesNo = parseBengaliYesNo(fullText);
-
-        if (yesNo === true) {
-          // User wants to file a case → transition to intake chain
-          this.emit({ type: "transcript", role: "user", text: fullText });
-          await this.startCaseIntakeChain();
-          return;
-        }
-
-        if (yesNo === false) {
-          // User says no → acknowledge and keep listening
-          this.emit({ type: "transcript", role: "user", text: fullText });
-          const noAckText = "ঠিক আছে, আমি শুনছি। আপনার যেকোনো আইনি প্রশ্ন বা পরামর্শের প্রয়োজন হলে নির্দ্বিধায় বলুন, আমি সাহায্য করছি।";
-          this.interruptAssistant();
-          this.setAssistantSpeaking(true);
-          this.emit({ type: "state_changed", state: "speaking" });
-          this.emit({ type: "transcript", role: "assistant", text: noAckText });
-          this.conversationHistory.push({ role: "assistant", content: noAckText });
-          try {
-            if (this.audioCtx && this.player) {
-              const buf = await getPreRecordedAudioBuffer(this.audioCtx, "inactivity_no_ack");
-              if (buf && this.isCallActive) {
-                this.player.playAudioBuffer(buf);
-                await this.player.waitUntilFinished();
-              } else if (this.ttsWs) {
-                await this.ttsWs.speakWhenReady(noAckText);
-                this.ttsWs.flush();
-                await this.ttsWs.waitForFlush(8000);
-                await this.player?.waitUntilFinished();
-              }
-            }
-          } catch {
-            if (this.ttsWs) {
-              await this.ttsWs.speakWhenReady(noAckText).catch(() => {});
-              this.ttsWs.flush();
-              await this.ttsWs.waitForFlush(5000).catch(() => {});
-            }
-          } finally {
-            if (this.isCallActive) {
-              this.setAssistantSpeaking(false);
-              this.turnPhase.reset();
-              this.emit({ type: "state_changed", state: "listening" });
-              this.inactivityPhase = "off";
-              this.armInactivityTimer();
-            }
-          }
-          return;
-        }
-
-        // Not a yes/no → treat as another question, fall through to LLM
-        // (timer will be re-armed after the LLM response finishes)
       }
     }
 
@@ -830,7 +795,7 @@ export class DirectSession implements VoiceSession {
 
     const stt_ms = Math.max(0, Math.round(t_stt_final - t_speech_end));
     const llmUrl = (this.lastConfig?.llmProxyUrl || "/api/llm").replace(/\/+$/, "");
-    const llmModel = this.lastConfig?.llmModel || "qwen/qwen3.8-27b";
+    const llmModel = this.lastConfig?.llmModel || "openai/gpt-oss-120b";
 
     const action = this.turnPhase.transition({
       type: "Transcript",
@@ -838,6 +803,15 @@ export class DirectSession implements VoiceSession {
       isFinal: true,
     });
     await this.executeTurnAction(action, fullText, llmUrl, llmModel, stt_ms, t_speech_end);
+    if (
+      this.activityEpoch === turnEpoch &&
+      this.generalQueryMode &&
+      this.isCallActive &&
+      this.intakeStep === "idle"
+    ) {
+      this.inactivityPhase = "off";
+      this.armInactivityTimer();
+    }
   }
 
   private async setupDirectMicStreamer(micStream: MediaStream) {
@@ -1092,6 +1066,7 @@ export class DirectSession implements VoiceSession {
     t_speech_end: number,
   ) {
     this.interruptAssistant();
+    const activityEpoch = this.activityEpoch;
     this.t_first_pcm_chunk = 0;
 
     const t_llm_start = performance.now();
@@ -1105,8 +1080,10 @@ export class DirectSession implements VoiceSession {
     // Attach high-precision sub-millisecond audio playback telemetry hook
     if (this.player) {
       this.player.onFirstPlay = (tPlay: number) => {
+        if (this.activityEpoch !== activityEpoch) return;
         const safe_ttft = t_llm_ttft > 0 ? t_llm_ttft : performance.now();
         const safe_sentence1 = t_sentence1_sent > 0 ? t_sentence1_sent : safe_ttft + 40;
+
         const safe_first_pcm = this.t_first_pcm_chunk > 0 ? this.t_first_pcm_chunk : tPlay - 2;
 
         const llm_ttft_ms = Math.max(0, Math.round(safe_ttft - t_llm_start));
@@ -1143,6 +1120,8 @@ export class DirectSession implements VoiceSession {
         signal: abortCtrl.signal,
       });
 
+      if (this.activityEpoch !== activityEpoch || !this.isCallActive) return;
+
       if (!res.ok || !res.body) {
         throw new Error(`LLM request failed: ${res.statusText}`);
       }
@@ -1154,6 +1133,7 @@ export class DirectSession implements VoiceSession {
 
       while (true) {
         const { done, value } = await reader.read();
+        if (this.activityEpoch !== activityEpoch || !this.isCallActive) return;
         if (done) break;
 
         const chunkStr = decoder.decode(value, { stream: true });
@@ -1210,8 +1190,10 @@ export class DirectSession implements VoiceSession {
                 if (t_sentence1_sent === 0) {
                   t_sentence1_sent = performance.now();
                 }
+                if (this.activityEpoch !== activityEpoch) return;
                 // Batched IPC dispatch (reduces 98% of synchronous CDP thread stalls)
                 this.emit({ type: "transcript_chunk", role: "assistant", text: flushChunk + " " });
+
                 if (this.ttsWs) {
                   textSentToTts = true;
                   void this.ttsWs.speakWhenReady(flushChunk);
@@ -1226,10 +1208,12 @@ export class DirectSession implements VoiceSession {
         if (t_sentence1_sent === 0) {
           t_sentence1_sent = performance.now();
         }
+        if (this.activityEpoch !== activityEpoch) return;
         this.emit({ type: "transcript_chunk", role: "assistant", text: sentenceBuffer.trim() });
         if (this.ttsWs) {
           textSentToTts = true;
           await this.ttsWs.speakWhenReady(sentenceBuffer.trim());
+          if (this.activityEpoch !== activityEpoch) return;
         }
       }
 
@@ -1237,6 +1221,7 @@ export class DirectSession implements VoiceSession {
       if (this.ttsWs && textSentToTts) {
         this.ttsWs.flush();
         await this.ttsWs.waitForFlush(8000);
+        if (this.activityEpoch !== activityEpoch) return;
       }
 
       if (fullAssistantText.trim().length > 0) {
@@ -1246,19 +1231,27 @@ export class DirectSession implements VoiceSession {
 
       if (this.player) {
         await this.player.waitUntilFinished();
+        if (this.activityEpoch !== activityEpoch) return;
       }
 
       this.setAssistantSpeaking(false);
       this.turnPhase.reset();
       this.emit({ type: "state_changed", state: "listening" });
     } catch (err: unknown) {
-      if ((err as { name?: string })?.name !== "AbortError") {
+      if (
+        this.activityEpoch === activityEpoch &&
+        (err as { name?: string })?.name !== "AbortError"
+      ) {
         this.emit({ type: "error", message: `Direct LLM Error: ${String(err)}` });
       }
     } finally {
-      this.activeAbortCtrl = null;
-      this.setAssistantSpeaking(false);
-      this.turnPhase.reset();
+      if (this.activityEpoch === activityEpoch) {
+        if (this.activeAbortCtrl === abortCtrl) {
+          this.activeAbortCtrl = null;
+        }
+        this.setAssistantSpeaking(false);
+        this.turnPhase.reset();
+      }
     }
   }
 
@@ -1318,13 +1311,95 @@ export class DirectSession implements VoiceSession {
     }
   }
 
+  private async handleInactivityWarningInput(input: string): Promise<boolean> {
+    const clean = input.trim();
+    const parsed = parseBengaliYesNo(clean);
+    const isYes =
+      parsed === true ||
+      clean === "1" ||
+      clean === "১" ||
+      clean === "১ (সাধারণ তথ্য ও নিয়মাবলী)";
+    const isNo =
+      parsed === false ||
+      clean === "2" ||
+      clean === "২" ||
+      clean === "২ (সমস্যা বা নতুন অভিযোগ)";
+    if (!isYes && !isNo) return false;
+
+    const activityEpoch = this.activityEpoch;
+    this.inactivityPhase = "off";
+    this.emit({ type: "transcript", role: "user", text: clean });
+
+    if (isYes) {
+      await this.startCaseIntakeChain();
+      return true;
+    }
+
+    const noAckText = "ঠিক আছে, আমি শুনছি। আপনার যেকোনো আইনি প্রশ্ন বা পরামর্শের প্রয়োজন হলে নির্দ্বিধায় বলুন, আমি সাহায্য করছি।";
+    this.interruptAssistant();
+    this.setAssistantSpeaking(true);
+    this.emit({ type: "state_changed", state: "speaking" });
+    this.emit({ type: "transcript", role: "assistant", text: noAckText });
+    this.conversationHistory.push({ role: "assistant", content: noAckText });
+    try {
+      if (this.audioCtx && this.player) {
+        const buf = await getPreRecordedAudioBuffer(this.audioCtx, "inactivity_no_ack");
+        if (this.activityEpoch !== activityEpoch || !this.isCallActive) return true;
+        if (buf && this.isCallActive) {
+          this.player.playAudioBuffer(buf);
+          await this.player.waitUntilFinished();
+        } else if (this.ttsWs) {
+          await this.ttsWs.speakWhenReady(noAckText);
+          if (this.activityEpoch !== activityEpoch) return true;
+          this.ttsWs.flush();
+          await this.ttsWs.waitForFlush(8000);
+          await this.player?.waitUntilFinished();
+        }
+      }
+    } catch {
+      if (this.activityEpoch !== activityEpoch || !this.isCallActive) return true;
+      if (this.ttsWs) {
+        await this.ttsWs.speakWhenReady(noAckText).catch(() => {});
+        if (this.activityEpoch !== activityEpoch) return true;
+        this.ttsWs.flush();
+        await this.ttsWs.waitForFlush(5000).catch(() => {});
+      }
+    } finally {
+      if (
+        this.isCallActive &&
+        this.generalQueryMode &&
+        this.activityEpoch === activityEpoch
+      ) {
+        this.setAssistantSpeaking(false);
+        this.turnPhase.reset();
+        this.emit({ type: "state_changed", state: "listening" });
+        this.inactivityPhase = "off";
+        this.armInactivityTimer();
+      }
+    }
+    return true;
+  }
+
   private async handleInactivityFired(): Promise<void> {
     if (!this.isCallActive || !this.generalQueryMode) return;
+    if (this.intakeStep !== "idle") {
+      this.clearInactivityTimer();
+      return;
+    }
     if (this.isAssistantSpeakingOrPlaying) {
       // Re-arm: don't interrupt the agent while it's speaking
       this.armInactivityTimer();
       return;
     }
+
+    const sinceMicSpeech =
+      this.t_last_mic_speech > 0 ? performance.now() - this.t_last_mic_speech : Infinity;
+    if (this.vad.isSpeaking() || sinceMicSpeech < 300) {
+      this.armInactivityTimer();
+      return;
+    }
+
+    const activityEpoch = ++this.activityEpoch;
 
     if (this.inactivityPhase === "off" || this.inactivityPhase === "query") {
       // === Phase 1: Ask if they want to file a case ===
@@ -1341,24 +1416,28 @@ export class DirectSession implements VoiceSession {
         // Try pre-recorded first
         if (this.audioCtx && this.player) {
           const buf = await getPreRecordedAudioBuffer(this.audioCtx, "inactivity_app_query");
+          if (this.activityEpoch !== activityEpoch || !this.isCallActive) return;
           if (buf && this.isCallActive) {
             this.player.playAudioBuffer(buf);
             await this.player.waitUntilFinished();
           } else if (this.ttsWs) {
             await this.ttsWs.speakWhenReady(queryText);
+            if (this.activityEpoch !== activityEpoch) return;
             this.ttsWs.flush();
             await this.ttsWs.waitForFlush(8000);
             await this.player?.waitUntilFinished();
           }
         }
       } catch {
+        if (this.activityEpoch !== activityEpoch || !this.isCallActive) return;
         if (this.ttsWs) {
           await this.ttsWs.speakWhenReady(queryText).catch(() => {});
+          if (this.activityEpoch !== activityEpoch) return;
           this.ttsWs.flush();
           await this.ttsWs.waitForFlush(5000).catch(() => {});
         }
       } finally {
-        if (this.isCallActive) {
+        if (this.isCallActive && this.activityEpoch === activityEpoch) {
           this.setAssistantSpeaking(false);
           this.turnPhase.reset();
           this.emit({ type: "state_changed", state: "listening" });
@@ -1381,28 +1460,34 @@ export class DirectSession implements VoiceSession {
       try {
         if (this.audioCtx && this.player) {
           const buf = await getPreRecordedAudioBuffer(this.audioCtx, "inactivity_hangup");
+          if (this.activityEpoch !== activityEpoch || !this.isCallActive) return;
           if (buf && this.isCallActive) {
             this.player.playAudioBuffer(buf);
             await this.player.waitUntilFinished();
           } else if (this.ttsWs) {
             await this.ttsWs.speakWhenReady(hangupText);
+            if (this.activityEpoch !== activityEpoch) return;
             this.ttsWs.flush();
             await this.ttsWs.waitForFlush(8000);
             await this.player?.waitUntilFinished();
           }
         }
       } catch {
+        if (this.activityEpoch !== activityEpoch || !this.isCallActive) return;
         if (this.ttsWs) {
           await this.ttsWs.speakWhenReady(hangupText).catch(() => {});
+          if (this.activityEpoch !== activityEpoch) return;
           this.ttsWs.flush();
           await this.ttsWs.waitForFlush(5000).catch(() => {});
         }
       } finally {
-        // Emit hangup event so the UI can close the call
-        this.emit({ type: "system", text: "INACTIVITY_HANGUP" });
-        this.setAssistantSpeaking(false);
-        // Give a tiny gap before stop() so audio finishes playing
-        setTimeout(() => { if (this.isCallActive) this.stop(); }, 300);
+        if (this.isCallActive && this.activityEpoch === activityEpoch) {
+          // Emit hangup event so the UI can close the call
+          this.emit({ type: "system", text: "INACTIVITY_HANGUP" });
+          this.setAssistantSpeaking(false);
+          // Give a tiny gap before stop() so audio finishes playing
+          setTimeout(() => { if (this.isCallActive) this.stop(); }, 300);
+        }
       }
     }
   }
@@ -1411,6 +1496,7 @@ export class DirectSession implements VoiceSession {
     const clean = text.trim();
     if (!clean) return;
     this.interruptAssistant();
+    const activityEpoch = this.activityEpoch;
     this.setAssistantSpeaking(true);
     this.emit({ type: "state_changed", state: "speaking" });
     this.emit({ type: "transcript", role: "assistant", text: clean });
@@ -1418,15 +1504,19 @@ export class DirectSession implements VoiceSession {
 
     if (this.ttsWs) {
       await this.ttsWs.speakWhenReady(clean);
+      if (this.activityEpoch !== activityEpoch) return;
       this.ttsWs.flush();
       await this.ttsWs.waitForFlush(8000);
     }
     if (this.player) {
       await this.player.waitUntilFinished();
+      if (this.activityEpoch !== activityEpoch) return;
     }
-    this.setAssistantSpeaking(false);
-    this.turnPhase.reset();
-    this.emit({ type: "state_changed", state: "listening" });
+    if (this.isCallActive && this.activityEpoch === activityEpoch) {
+      this.setAssistantSpeaking(false);
+      this.turnPhase.reset();
+      this.emit({ type: "state_changed", state: "listening" });
+    }
   }
 
   private async syncDocketPatch(patch: Record<string, any>): Promise<void> {
@@ -1445,6 +1535,10 @@ export class DirectSession implements VoiceSession {
   }
 
   public async startCaseIntakeChain(): Promise<void> {
+    this.activityEpoch += 1;
+    this.clearInactivityTimer();
+    this.generalQueryMode = false;
+    this.inactivityPhase = "off";
     this.intakeStep = "problem";
     this.intakeData = {
       problem: "",
@@ -1581,34 +1675,97 @@ export class DirectSession implements VoiceSession {
     await this.finalizeCaseIntake();
   }
 
+  private async speakIntakeCompletion(text: string): Promise<void> {
+    if (this.audioCtx && this.player) {
+      const buf = await getPreRecordedAudioBuffer(this.audioCtx, "intake_complete");
+      if (buf && this.isCallActive) {
+        this.interruptAssistant();
+        const activityEpoch = this.activityEpoch;
+        this.setAssistantSpeaking(true);
+        this.emit({ type: "state_changed", state: "speaking" });
+        this.emit({ type: "transcript", role: "assistant", text });
+        this.conversationHistory.push({ role: "assistant", content: text });
+        this.player.playAudioBuffer(buf);
+        await this.player.waitUntilFinished();
+        if (this.isCallActive && this.activityEpoch === activityEpoch) {
+          this.setAssistantSpeaking(false);
+          this.turnPhase.reset();
+          this.emit({ type: "state_changed", state: "listening" });
+        }
+        return;
+      }
+    }
+
+    await this.speakAssistantPhrase(text);
+  }
+
+  private async createCitizenSession(docketId: string, district: string, category: string): Promise<SessionUser> {
+    const response = await fetch("/api/roles/complete", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        voiceSessionId: this.sessionId,
+        docketId,
+        displayName: this.intakeData.callerName || "নাগরিক",
+        phone: null,
+        problem: this.intakeData.problem,
+        hasDisability: this.intakeData.hasDisability,
+        gender: this.intakeData.gender,
+        district,
+        thana: this.intakeData.address,
+        category,
+      }),
+    });
+    const payload = (await response.json().catch(() => null)) as { user?: SessionUser; error?: string } | null;
+    if (!response.ok || !payload?.user) {
+      throw new Error(payload?.error || "Citizen session could not be created");
+    }
+    return payload.user;
+  }
+
   private async finalizeCaseIntake(): Promise<void> {
     const docketId = "DLAS-2025-" + Math.floor(1000 + Math.random() * 9000);
     const district = extractDistrict(this.intakeData.address || "") || "ঢাকা";
     const category = inferLegalCategory(this.intakeData.problem || "");
 
-    void this.syncDocketPatch({
-      callerName: this.intakeData.callerName,
-      incidentSummary: this.intakeData.problem,
-      gender: this.intakeData.gender,
-      hasDisability: this.intakeData.hasDisability,
-      district,
-      thana: this.intakeData.address,
-      category,
-      eligibilityStatus: "eligible_100_free",
-      docketId,
-      urgency: "normal",
-      assignedOffice: `জেলা লিগ্যাল এইড অফিস, ${district}`,
-    });
+     await this.syncDocketPatch({
+       callerName: this.intakeData.callerName,
+       incidentSummary: this.intakeData.problem,
+       gender: this.intakeData.gender,
+       hasDisability: this.intakeData.hasDisability,
+       district,
+       thana: this.intakeData.address,
+       category,
+       eligibilityStatus: "eligible_100_free",
+       docketId,
+       urgency: "normal",
+       assignedOffice: `জেলা লিগ্যাল এইড অফিস, ${district}`,
+     });
 
-    const closingPrompt = `আপনার আইনি অভিযোগ ও তথ্যাবলী সফলভাবে নথিভুক্ত করা হয়েছে। আপনার কেস ডকেট নম্বর ${docketId}। জাতীয় আইনগত সহায়তা প্রদান সংস্থা থেকে আমাদের প্যানেল আইনজীবী দ্রুত আপনার সাথে যোগাযোগ করবেন। আপনাকে ধন্যবাদ।`;
-    await this.speakAssistantPhrase(closingPrompt);
+     let citizenUser: SessionUser;
+     try {
+       citizenUser = await this.createCitizenSession(docketId, district, category);
+     } catch (error) {
+       this.emit({
+         type: "error",
+         message: `আইনি অভিযোগ নথিভুক্ত হয়েছে, কিন্তু নাগরিক লগইন তৈরি হয়নি: ${error instanceof Error ? error.message : String(error)}`,
+       });
+       return;
+     }
 
-    this.intakeStep = "idle";
-    this.emit({
-      type: "intake_step_changed",
-      step: "idle",
-      data: this.intakeData,
-    });
+      const closingPrompt =
+
+       "আপনার আইনি অভিযোগ ও তথ্যাবলী সফলভাবে নথিভুক্ত করা হয়েছে। আপনার ডকেট নম্বরটি কথোপকথনের রেকর্ডে সংরক্ষিত আছে। জাতীয় আইনগত সহায়তা প্রদান সংস্থা থেকে আমাদের প্যানেল আইনজীবী দ্রুত আপনার সাথে যোগাযোগ করবেন। আপনাকে ধন্যবাদ। আপনার কলটি এখানেই শেষ করা হচ্ছে।";
+     await this.speakIntakeCompletion(closingPrompt);
+
+     this.intakeStep = "idle";
+     this.emit({
+       type: "intake_step_changed",
+       step: "idle",
+       data: this.intakeData,
+     });
+     this.emit({ type: "intake_complete", docketId, user: citizenUser });
+
   }
 
   private async handleIntakeVoiceInput(clean: string): Promise<void> {
@@ -1655,11 +1812,24 @@ export class DirectSession implements VoiceSession {
     }
   }
 
-  public async sendUserMessage(text: string): Promise<void> {
+  public sendUserMessage(text: string): Promise<void> {
+    const queued = this.userMessageQueue.then(() => this.sendUserMessageInternal(text));
+    this.userMessageQueue = queued.catch(() => {});
+    return queued;
+  }
+
+  private async sendUserMessageInternal(text: string): Promise<void> {
     const trimmed = text.trim();
-    if (!trimmed) return;
+    if (!trimmed || !this.isCallActive) return;
+    this.activityEpoch += 1;
+    const activityEpoch = this.activityEpoch;
     this.interruptAssistant();
     this.exitDtmfWait();
+
+    if (this.generalQueryMode && this.inactivityPhase === "hangup_warn") {
+      if (await this.handleInactivityWarningInput(trimmed)) return;
+      this.inactivityPhase = "off";
+    }
 
     // 1. If currently in Intake Chain:
     if (this.intakeStep !== "idle" && this.intakeStep !== "complete") {
@@ -1747,11 +1917,13 @@ export class DirectSession implements VoiceSession {
       try {
         if (this.audioCtx && this.player) {
           const opt1Buf = await getPreRecordedAudioBuffer(this.audioCtx, "option1");
+          if (this.activityEpoch !== activityEpoch || !this.isCallActive) return;
           if (opt1Buf && this.player) {
             this.player.playAudioBuffer(opt1Buf);
             await this.player.waitUntilFinished();
           } else if (this.ttsWs) {
             await this.ttsWs.speakWhenReady(opt1Text);
+            if (this.activityEpoch !== activityEpoch) return;
             this.ttsWs.flush();
             await this.ttsWs.waitForFlush(8000);
             await this.player.waitUntilFinished();
@@ -1760,36 +1932,42 @@ export class DirectSession implements VoiceSession {
       } catch (err) {
         console.warn("Failed to play option1 pre-recorded audio:", err);
       } finally {
-        this.activeAbortCtrl = null;
-        this.setAssistantSpeaking(false);
-        this.turnPhase.reset();
-        this.emit({ type: "state_changed", state: "listening" });
-        // Activate general query mode and start 10s inactivity watch
-        this.generalQueryMode = true;
-        this.inactivityPhase = "off";
-        this.armInactivityTimer();
+        if (this.isCallActive && this.activityEpoch === activityEpoch) {
+          this.activeAbortCtrl = null;
+          this.setAssistantSpeaking(false);
+          this.turnPhase.reset();
+          this.emit({ type: "state_changed", state: "listening" });
+          // Activate general query mode and start 10s inactivity watch
+          this.generalQueryMode = true;
+          this.inactivityPhase = "off";
+          this.armInactivityTimer();
+        }
       }
+
       return;
     }
 
     const llmUrl = (this.lastConfig?.llmProxyUrl || "/api/llm").replace(/\/+$/, "");
-    const llmModel = this.lastConfig?.llmModel || "qwen/qwen3.8-27b";
+    const llmModel = this.lastConfig?.llmModel || "openai/gpt-oss-120b";
     try {
       await this.generateAndSpeakResponse(llmUrl, llmModel, 0, performance.now());
     } finally {
-      this.activeAbortCtrl = null;
-      this.setAssistantSpeaking(false);
-      this.turnPhase.reset();
-      this.emit({ type: "state_changed", state: "listening" });
-      // Re-arm inactivity timer after each general query response
-      if (this.generalQueryMode) {
-        this.inactivityPhase = "off";
-        this.armInactivityTimer();
+      if (this.isCallActive && this.activityEpoch === activityEpoch) {
+        this.activeAbortCtrl = null;
+        this.setAssistantSpeaking(false);
+        this.turnPhase.reset();
+        this.emit({ type: "state_changed", state: "listening" });
+        // Re-arm inactivity timer after each general query response
+        if (this.generalQueryMode) {
+          this.inactivityPhase = "off";
+          this.armInactivityTimer();
+        }
       }
     }
   }
 
   public stop(): void {
+    this.activityEpoch += 1;
     this.isCallActive = false;
     this.waitingForDtmf = false;
     this.intakeStep = "idle";
@@ -1811,6 +1989,10 @@ export class DirectSession implements VoiceSession {
     if (this.speechFinalDebounceTimer) {
       clearTimeout(this.speechFinalDebounceTimer);
       this.speechFinalDebounceTimer = null;
+    }
+    if (this.fallbackTimer) {
+      clearTimeout(this.fallbackTimer);
+      this.fallbackTimer = null;
     }
     // Clear inactivity timer
     this.clearInactivityTimer();

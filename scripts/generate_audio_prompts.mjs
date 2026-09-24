@@ -32,64 +32,64 @@ async function synthesizeToFile(text, outPath) {
   console.log(`Synthesizing: "${text}" -> ${outPath}`);
   return new Promise((resolve, reject) => {
     const ws = new WebSocket("wss://legal-voice-agent.adribmahmud.workers.dev/v1/tts");
-
+    ws.binaryType = "arraybuffer";
     const pcmChunks = [];
-    const streamId = "s_" + Date.now();
-    const timeout = setTimeout(() => {
+    let settled = false;
+
+    const save = () => {
+      if (pcmChunks.length === 0) return false;
+      const wav = createWavBuffer(pcmChunks);
+      fs.writeFileSync(outPath, wav);
+      console.log(`Saved ${outPath} (${wav.length} bytes, duration: ${(wav.length - 44) / 48000}s)`);
+      return true;
+    };
+
+    const finish = () => {
+      if (settled) return;
+      if (!save()) return;
+      settled = true;
+      clearTimeout(timeout);
       ws.close();
-      reject(new Error("Timeout synthesizing audio"));
-    }, 15000);
+      resolve();
+    };
+
+    const timeout = setTimeout(() => {
+      if (settled) return;
+      settled = true;
+      ws.close();
+      if (!save()) reject(new Error("Timeout synthesizing audio"));
+    }, 30000);
 
     ws.onopen = () => {
-      ws.send(JSON.stringify({
-        stream_id: streamId,
-        model: "tts-rt-v2",
-        language: "bn",
-        voice: "Priya",
-        audio_format: "pcm_s16le",
-        sample_rate: 24000
-      }));
-      ws.send(JSON.stringify({
-        stream_id: streamId,
-        text: text,
-        text_end: true
-      }));
+      ws.send(JSON.stringify({ type: "Speak", text }));
+      ws.send(JSON.stringify({ type: "Flush" }));
     };
 
     ws.onmessage = (event) => {
+      if (event.data instanceof ArrayBuffer || Buffer.isBuffer(event.data)) {
+        const chunk = Buffer.from(event.data);
+        if (chunk.length > 0) pcmChunks.push(chunk);
+        return;
+      }
       try {
-        const msg = JSON.parse(event.data);
-        if (msg.error_code) {
-          console.error("Soniox Error:", msg.error_code, msg.error_message);
-        }
-        if (msg.audio) {
-          const buf = Buffer.from(msg.audio, 'base64');
-          pcmChunks.push(buf);
-        }
-        if (msg.end_of_stream || msg.text_end) {
+        const msg = JSON.parse(event.data.toString());
+        if (msg.type === "Flushed") finish();
+        if (msg.type === "error") {
+          settled = true;
           clearTimeout(timeout);
           ws.close();
-          const wav = createWavBuffer(pcmChunks);
-          fs.writeFileSync(outPath, wav);
-          console.log(`Saved ${outPath} (${wav.length} bytes, duration: ${(wav.length - 44) / 48000}s)`);
-          resolve();
+          reject(new Error(msg.message || "TTS synthesis failed"));
         }
-      } catch (err) {
-        console.error("Message parse err:", err);
-      }
+      } catch {}
     };
 
     ws.onclose = () => {
-      clearTimeout(timeout);
-      if (pcmChunks.length > 0 && !fs.existsSync(outPath)) {
-        const wav = createWavBuffer(pcmChunks);
-        fs.writeFileSync(outPath, wav);
-        console.log(`Saved on close: ${outPath} (${wav.length} bytes)`);
-        resolve();
-      }
+      if (!settled) finish();
     };
 
     ws.onerror = (err) => {
+      if (settled) return;
+      settled = true;
       clearTimeout(timeout);
       reject(err);
     };
@@ -112,6 +112,10 @@ async function main() {
     {
       name: "inactivity_hangup.wav",
       text: "দীর্ঘক্ষণ কোনো সাড়া না পাওয়ায় কলটি শেষ করা হচ্ছে। যেকোনো আইনি তথ্যের জন্য ১৬৬৯৯ নম্বরে আবার কল করুন। বাংলাদেশ লিগ্যাল এইডের সাথে থাকার জন্য ধন্যবাদ।"
+    },
+    {
+      name: "intake_complete.wav",
+      text: "আপনার আইনি অভিযোগ ও তথ্যাবলী সফলভাবে নথিভুক্ত করা হয়েছে। আপনার ডকেট নম্বরটি কথোপকথনের রেকর্ডে সংরক্ষিত আছে। জাতীয় আইনগত সহায়তা প্রদান সংস্থা থেকে আমাদের প্যানেল আইনজীবী দ্রুত আপনার সাথে যোগাযোগ করবেন। আপনাকে ধন্যবাদ। আপনার কলটি এখানেই শেষ করা হচ্ছে।"
     }
   ];
 
