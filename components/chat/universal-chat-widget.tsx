@@ -14,23 +14,16 @@ import { Button } from "@/components/ui/button";
  * would sit on top of the 16699 call button, which is the single most important
  * action on the site.
  *
- * So the chat launcher is stacked directly ABOVE the call button and the panel
- * opens above both. The call button is untouched — it keeps its exact position,
- * label and behaviour — so nothing about the tested voice path changes.
+ * So the launcher stacks directly ABOVE the call button, and the panel opens
+ * above both. The call button is untouched, so nothing about the tested voice
+ * path changes.
  *
- * Offsets are fixed px rather than derived from the call button, because the two
- * live in different CSS systems (portal.css vs inline styles) and a shared token
- * would couple them. 84px clears a 52px pill sitting 20px off the bottom edge.
+ * Layout lives in `app/globals.css` (.uchat-*) rather than inline styles
+ * because it has to change at 640px: a fixed bottom offset collapses the panel
+ * on a phone once the keyboard shrinks the dynamic viewport, which left a
+ * floating strip with the page showing through. Below 640px it is a full-screen
+ * sheet instead.
  */
-
-const FAB_BOTTOM_PX = 84;
-const PANEL_BOTTOM_PX = 148;
-
-interface Turn {
-  id: string;
-  role: "user" | "assistant";
-  content: string;
-}
 
 const SUGGESTIONS = [
   "আইনি সহায়তার জন্য কী কী ডকুমেন্ট লাগে?",
@@ -38,19 +31,19 @@ const SUGGESTIONS = [
   "আমার ডকেট নম্বর কীভাবে ট্র্যাক করব?",
 ];
 
+const MOBILE_QUERY = "(max-width: 639px)";
+
+interface Turn {
+  id: string;
+  role: "user" | "assistant";
+  content: string;
+}
+
 function Bubble({ turn }: { turn: Turn }) {
   const isUser = turn.role === "user";
   return (
-    <div className={`flex ${isUser ? "justify-end" : "justify-start"}`}>
-      <div
-        className={`max-w-[85%] whitespace-pre-wrap rounded-2xl px-3 py-2 text-sm leading-relaxed ${
-          isUser
-            ? "rounded-br-sm bg-primary text-primary-foreground"
-            : "rounded-bl-sm border border-border bg-muted text-foreground"
-        }`}
-      >
-        {turn.content}
-      </div>
+    <div className={isUser ? "uchat-row-user" : "uchat-row-bot"}>
+      <div className={isUser ? "uchat-bubble-user" : "uchat-bubble-bot"}>{turn.content}</div>
     </div>
   );
 }
@@ -62,19 +55,39 @@ export function UniversalChatWidget() {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [conversationId, setConversationId] = useState("");
+  const [isMobile, setIsMobile] = useState(false);
 
-  const panelRef = useRef<HTMLDivElement | null>(null);
   const inputRef = useRef<HTMLInputElement | null>(null);
   const logRef = useRef<HTMLDivElement | null>(null);
   const fabRef = useRef<HTMLButtonElement | null>(null);
-  const openedAtRef = useRef<number>(0);
   const cacheOpenedAtRef = useRef<number>(0);
   const titleId = useId();
   const logId = useId();
 
   useEffect(() => {
+    const media = window.matchMedia(MOBILE_QUERY);
+    const sync = () => setIsMobile(media.matches);
+    sync();
+    media.addEventListener("change", sync);
+    return () => media.removeEventListener("change", sync);
+  }, []);
+
+  // The full-screen sheet owns the viewport on mobile, so stop the page behind
+  // it from scrolling.
+  useEffect(() => {
+    if (!open || !isMobile) return;
+    const previous = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    return () => {
+      document.body.style.overflow = previous;
+    };
+  }, [open, isMobile]);
+
+  useEffect(() => {
     if (!open) return;
-    inputRef.current?.focus();
+    // On mobile the keyboard would open immediately and squeeze the sheet; the
+    // citizen taps the field when they are ready.
+    if (!isMobile) inputRef.current?.focus();
     const onKey = (event: KeyboardEvent) => {
       if (event.key === "Escape") {
         setOpen(false);
@@ -83,11 +96,12 @@ export function UniversalChatWidget() {
     };
     document.addEventListener("keydown", onKey);
     return () => document.removeEventListener("keydown", onKey);
-  }, [open]);
+  }, [open, isMobile]);
 
   useEffect(() => {
     if (!open) return;
-    logRef.current?.scrollTo({ top: logRef.current.scrollHeight });
+    const node = logRef.current;
+    if (node) node.scrollTop = node.scrollHeight;
   }, [turns, busy, open]);
 
   const send = useCallback(
@@ -95,10 +109,7 @@ export function UniversalChatWidget() {
       const question = text.trim();
       if (!question || busy) return;
 
-      const history = turns
-        .filter((turn) => turn.id !== "pending")
-        .slice(-6)
-        .map((turn) => ({ role: turn.role, content: turn.content }));
+      const history = turns.slice(-6).map((turn) => ({ role: turn.role, content: turn.content }));
 
       setTurns((prev) => [
         ...prev,
@@ -151,102 +162,62 @@ export function UniversalChatWidget() {
     [busy, conversationId, turns],
   );
 
-  function toggle() {
-    setOpen((prev) => {
-      const next = !prev;
-      if (next) openedAtRef.current = Date.now();
-      else fabRef.current?.focus();
-      return next;
-    });
+  function close() {
+    setOpen(false);
+    fabRef.current?.focus();
   }
 
   const showWelcome = turns.length === 0;
 
   return (
     <>
-      {/* Launcher: stacked above the 16699 call button. */}
       <button
         ref={fabRef}
         type="button"
-        onClick={toggle}
-        aria-expanded={open}
-        aria-controls={open ? "universal-chat-panel" : undefined}
-        aria-label={open ? "সহায়ক বন্ধ করুন" : "আইনি সহায়তা সহায়ক খুলুন"}
+        className="uchat-fab"
+        data-open={open ? "true" : "false"}
         data-testid="chat-fab"
-        style={{
-          position: "fixed",
-          right: 20,
-          bottom: FAB_BOTTOM_PX,
-          zIndex: 481,
-          display: "flex",
-          alignItems: "center",
-          gap: 8,
-          minHeight: 44,
-          padding: "8px 15px",
-          border: "2px solid var(--portal-accent)",
-          borderRadius: 22,
-          background: "var(--portal-surface, #fff)",
-          color: "var(--portal-accent)",
-          fontFamily: "var(--font-bn)",
-          fontSize: 13,
-          fontWeight: 700,
-          cursor: "pointer",
-          boxShadow: "var(--shadow-lg)",
-        }}
+        onClick={() => setOpen((prev) => !prev)}
+        aria-expanded={open}
+        aria-controls="universal-chat-panel"
+        aria-label={open ? "সহায়ক বন্ধ করুন" : "আইনি সহায়তা সহায়ক খুলুন"}
       >
-        <Bot aria-hidden="true" style={{ width: 18, height: 18 }} />
+        <Bot aria-hidden="true" className="size-[18px]" />
         আইনি সহায়তা
       </button>
 
+      {open && isMobile ? (
+        <button
+          type="button"
+          className="uchat-scrim"
+          aria-label="সহায়ক বন্ধ করুন"
+          tabIndex={-1}
+          onClick={close}
+        />
+      ) : null}
+
       {open ? (
         <div
-          ref={panelRef}
           id="universal-chat-panel"
-          role="dialog"
-          aria-modal="false"
-          aria-labelledby={titleId}
+          className="uchat-panel"
           data-testid="chat-panel"
-          style={{
-            position: "fixed",
-            right: 20,
-            bottom: PANEL_BOTTOM_PX,
-            zIndex: 482,
-            display: "flex",
-            flexDirection: "column",
-            width: "min(380px, calc(100vw - 32px))",
-            height: "min(560px, calc(100dvh - 200px))",
-            border: "1px solid var(--portal-border, #e2e8f0)",
-            borderRadius: 16,
-            background: "var(--portal-surface, #fff)",
-            boxShadow: "0 18px 50px rgba(15, 23, 42, 0.22)",
-            overflow: "hidden",
-          }}
+          data-layout={isMobile ? "sheet" : "docked"}
+          role="dialog"
+          aria-modal={isMobile ? true : undefined}
+          aria-labelledby={titleId}
         >
-          <div
-            style={{
-              display: "flex",
-              alignItems: "center",
-              justifyContent: "space-between",
-              gap: 8,
-              padding: "10px 12px",
-              borderBottom: "1px solid var(--portal-border, #e2e8f0)",
-              background: "var(--portal-accent)",
-              color: "#fff",
-            }}
-          >
-            <div style={{ display: "flex", alignItems: "center", gap: 8, minWidth: 0 }}>
-              <Bot aria-hidden="true" style={{ width: 18, height: 18, flexShrink: 0 }} />
-              <span id={titleId} style={{ fontFamily: "var(--font-bn)", fontWeight: 700, fontSize: 14 }}>
-                আইনি সহায়তা সহায়ক
-              </span>
+          <div className="uchat-head">
+            <div className="uchat-title">
+              <Bot aria-hidden="true" className="size-[18px] shrink-0" />
+              <span id={titleId}>আইনি সহায়তা সহায়ক</span>
             </div>
             <button
               type="button"
-              onClick={toggle}
+              onClick={close}
               aria-label="সহায়ক বন্ধ করুন"
-              style={{ display: "inline-flex", background: "transparent", border: 0, color: "#fff", cursor: "pointer", padding: 4 }}
+              className="inline-flex cursor-pointer border-0 bg-transparent p-1 text-white"
             >
-              <X aria-hidden="true" style={{ width: 18, height: 18 }} />
+              <X aria-hidden="true" className="size-[18px]" />
             </button>
           </div>
 
@@ -256,30 +227,21 @@ export function UniversalChatWidget() {
             role="log"
             aria-live="polite"
             aria-label="সহায়কের উত্তর"
-            style={{ flex: 1, overflowY: "auto", padding: 12, display: "flex", flexDirection: "column", gap: 8 }}
+            className="uchat-log"
           >
             {showWelcome ? (
-              <div style={{ fontFamily: "var(--font-bn)", fontSize: 13, lineHeight: 1.7, color: "var(--portal-text-secondary)" }}>
-                <p style={{ margin: "0 0 8px" }}>
-                  স্বাগতম। আইনি সহায়তা, আবেদন ও ডকেট সম্পর্কে সংক্ষেপে জানতে চাইলে লিখুন। জটিল মামলার চূড়ান্ত সিদ্ধান্তের জন্য ১৬৬৯৯ এ কল করুন।
+              <div className="uchat-welcome">
+                <p className="mb-2">
+                  স্বাগতম। আইনি সহায়তা, আবেদন ও ডকেট সম্পর্কে সংক্ষেপে জানতে চাইলে লিখুন। জটিল
+                  মামলার চূড়ান্ত সিদ্ধান্তের জন্য ১৬৬৯৯ এ কল করুন।
                 </p>
-                <div style={{ display: "flex", flexDirection: "column", gap: 6, marginTop: 8 }}>
+                <div className="mt-2 flex flex-col gap-1.5">
                   {SUGGESTIONS.map((suggestion) => (
                     <button
                       key={suggestion}
                       type="button"
+                      className="uchat-suggestion"
                       onClick={() => void send(suggestion)}
-                      style={{
-                        textAlign: "left",
-                        padding: "8px 10px",
-                        border: "1px solid var(--portal-border, #e2e8f0)",
-                        borderRadius: 10,
-                        background: "transparent",
-                        color: "var(--portal-accent)",
-                        fontFamily: "var(--font-bn)",
-                        fontSize: 13,
-                        cursor: "pointer",
-                      }}
                     >
                       {suggestion}
                     </button>
@@ -300,18 +262,18 @@ export function UniversalChatWidget() {
             ) : null}
 
             {error ? (
-              <p role="alert" style={{ margin: 0, fontSize: 12, color: "#b91c1c" }}>
+              <p role="alert" className="m-0 text-xs text-destructive">
                 {error}
               </p>
             ) : null}
           </div>
 
           <form
+            className="uchat-composer"
             onSubmit={(event) => {
               event.preventDefault();
               void send(draft);
             }}
-            style={{ display: "flex", gap: 8, padding: 10, borderTop: "1px solid var(--portal-border, #e2e8f0)" }}
           >
             <label htmlFor={`${logId}-input`} className="sr-only">
               আপনার প্রশ্ন
@@ -319,20 +281,12 @@ export function UniversalChatWidget() {
             <input
               id={`${logId}-input`}
               ref={inputRef}
+              className="uchat-input"
               value={draft}
               onChange={(event) => setDraft(event.target.value)}
               placeholder="প্রশ্ন লিখুন…"
               maxLength={800}
-              style={{
-                flex: 1,
-                minWidth: 0,
-                height: 40,
-                padding: "0 10px",
-                border: "1px solid var(--portal-border, #e2e8f0)",
-                borderRadius: 10,
-                fontFamily: "var(--font-bn)",
-                fontSize: 14,
-              }}
+              autoComplete="off"
             />
             <Button type="submit" size="icon" disabled={busy || !draft.trim()} aria-label="প্রশ্ন পাঠান">
               <Send aria-hidden="true" />

@@ -17,26 +17,6 @@ async function main() {
     if (!v) console.log(`  FAIL ${k} ${extra}`);
   };
 
-  const seedSession = async (page, displayName) => {
-    await page.evaluate(async (name) => {
-      await fetch('/api/roles/complete', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        credentials: 'include',
-        body: JSON.stringify({
-          voiceSessionId: `chat-${Math.floor(Math.random() * 1e9)}`,
-          docketId: `DLAS-2025-${Math.floor(1000 + Math.random() * 9000)}`,
-          displayName: name,
-          phone: '01714141414',
-          problem: 'সহায়ক পরীক্ষা',
-          indigenousLanguage: 'bn',
-          district: 'ঢাকা',
-          category: 'land_dispute',
-        }),
-      });
-    }, displayName);
-  };
-
   // ---------- visitor: widget present on the landing page ----------
   const visitorCtx = await browser.newContext({ viewport: { width: 1280, height: 900 } });
   const page = await visitorCtx.newPage();
@@ -137,6 +117,78 @@ async function main() {
   });
   check('a signed-in citizen is served by the assistant', gateAsCitizen === 200, `status=${gateAsCitizen} seed=${staffLogin}`);
   await staffCtx.close();
+
+  // ---------- mobile: the panel must be a full-screen sheet ----------
+  // This is the regression that shipped once: a fixed bottom offset plus
+  // min(560px, 100dvh - 220px) collapsed to a floating strip once the keyboard
+  // shrank the viewport, with the page showing through behind it.
+  const mobileCtx = await browser.newContext({
+    viewport: { width: 390, height: 844 },
+    isMobile: true,
+    hasTouch: true,
+    deviceScaleFactor: 3,
+  });
+  const mobile = await mobileCtx.newPage();
+  await mobile.goto(site, { waitUntil: 'networkidle' });
+  const mobileFab = mobile.getByTestId('chat-fab');
+  check('launcher visible on mobile', await mobileFab.isVisible());
+  await mobileFab.tap();
+  const mobilePanel = mobile.getByTestId('chat-panel');
+  check('mobile panel opens', await mobilePanel.isVisible());
+  check('mobile panel uses the sheet layout', (await mobilePanel.getAttribute('data-layout')) === 'sheet');
+
+  const sheet = await mobile.evaluate(() => {
+    const panel = document.querySelector('[data-testid="chat-panel"]');
+    const fab = document.querySelector('[data-testid="chat-fab"]');
+    const r = panel?.getBoundingClientRect();
+    return {
+      w: r?.width ?? 0,
+      h: r?.height ?? 0,
+      top: r?.top ?? -1,
+      left: r?.left ?? -1,
+      vw: window.innerWidth,
+      vh: window.innerHeight,
+      fabHidden: fab ? getComputedStyle(fab).display === "none" : false,
+      bodyOverflow: getComputedStyle(document.body).overflow,
+    };
+  });
+  check('mobile sheet spans the full width', Math.abs(sheet.w - sheet.vw) <= 1, JSON.stringify(sheet));
+  check('mobile sheet spans the full height', Math.abs(sheet.h - sheet.vh) <= 2, JSON.stringify(sheet));
+  check('mobile sheet starts at the top', sheet.top <= 1, JSON.stringify(sheet));
+  check('mobile sheet is not offset horizontally', sheet.left <= 1, JSON.stringify(sheet));
+  check('launcher is hidden while the sheet is open', sheet.fabHidden === true, JSON.stringify(sheet));
+  check('page behind the sheet cannot scroll', sheet.bodyOverflow === 'hidden', JSON.stringify(sheet));
+
+  // The composer must stay reachable, and must not be covered.
+  const composer = await mobile.evaluate(() => {
+    const form = document.querySelector('.uchat-composer');
+    const input = document.querySelector('.uchat-input');
+    const r = form?.getBoundingClientRect();
+    const ir = input?.getBoundingClientRect();
+    return {
+      bottom: r?.bottom ?? -1,
+      inputVisible: ir ? ir.width > 0 && ir.height >= 32 : false,
+      vh: window.innerHeight,
+    };
+  });
+  check('composer sits inside the viewport', composer.bottom <= composer.vh + 1, JSON.stringify(composer));
+  check('input is usable on mobile', composer.inputVisible, JSON.stringify(composer));
+
+  // Emulate the on-screen keyboard by shrinking the visual viewport.
+  await mobile.evaluate(() => {
+    document.documentElement.style.setProperty('--force-viewport', '360');
+  });
+  await mobile.setViewportSize({ width: 390, height: 360 });
+  await mobile.waitForTimeout(300);
+  const shrunk = await mobile.evaluate(() => {
+    const r = document.querySelector('[data-testid="chat-panel"]')?.getBoundingClientRect();
+    const c = document.querySelector('.uchat-composer')?.getBoundingClientRect();
+    return { h: r?.height ?? 0, vh: window.innerHeight, composerBottom: c?.bottom ?? -1 };
+  });
+  check('sheet still fills the viewport with the keyboard up', Math.abs(shrunk.h - shrunk.vh) <= 2, JSON.stringify(shrunk));
+  check('composer stays on screen with the keyboard up', shrunk.composerBottom <= shrunk.vh + 1, JSON.stringify(shrunk));
+  await mobile.setViewportSize({ width: 390, height: 844 });
+  await mobileCtx.close();
 
   console.log('\n=== RESULTS ===');
   let failed = 0;
