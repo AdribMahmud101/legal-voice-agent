@@ -50,10 +50,16 @@ export type IntakeStep =
   | "phone_primary"
   | "phone_number"
   | "address"
+  | "case_tracking"
+  | "case_pin"
+  | "case_result"
   | "complete";
 
 export interface IntakeData {
    problem?: string;
+  /** Case tracking: PIN keyed so far and how many guesses have failed. */
+  casePinDraft?: string;
+  casePinAttempts?: number;
    hasDisability?: boolean | null;
    disabilityType?: string | null;
    disabilityTypeCode?: string | null;

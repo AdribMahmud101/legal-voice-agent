@@ -264,9 +264,11 @@ let cachedLanguageSelectBuf: AudioBuffer | null = null;
 let cachedLanguageConfirmedBnBuf: AudioBuffer | null = null;
 let cachedLanguageConfirmedMarmaBuf: AudioBuffer | null = null;
 let cachedLanguageConfirmedChakmaBuf: AudioBuffer | null = null;
+let cachedOption3TrackingBuf: AudioBuffer | null = null;
+let cachedCasePinLockedBuf: AudioBuffer | null = null;
 
 const LANGUAGE_SELECTION_PROMPT =
-  "প্রথমে আপনার ভাষা নির্বাচন করুন: বাংলার জন্য ১, মারমার জন্য ২, চাকমার জন্য ৩ চাপুন, অথবা মুখে ভাষার নাম বলুন। এরপর সাধারণ তথ্যের জন্য ১ এবং সমস্যা বা অভিযোগের জন্য ২ চাপুন।";
+  "প্রথমে আপনার ভাষা নির্বাচন করুন: বাংলার জন্য ১, মারমার জন্য ২, চাকমার জন্য ৩ চাপুন, অথবা মুখে ভাষার নাম বলুন। এরপর সাধারণ তথ্যের জন্য ১, সমস্যা বা অভিযোগের জন্য ২ এবং কেস ট্র্যাকিংয়ের জন্য ৩ চাপুন।";
 const LANGUAGE_SELECTION_RETRY_PROMPT =
   "আমি আপনার ভাষা বুঝতে পারিনি। বাংলার জন্য ১, মারমার জন্য ২, চাকমার জন্য ৩ চাপুন, অথবা মুখে বলুন।";
 
@@ -285,7 +287,9 @@ type AudioKind =
   | "language_select"
   | "language_confirmed_bn"
   | "language_confirmed_marma"
-  | "language_confirmed_chakma";
+  | "language_confirmed_chakma"
+  | "option3_tracking"
+  | "case_pin_locked";
 
 async function getPreRecordedAudioBuffer(
   audioCtx: AudioContext,
@@ -309,6 +313,8 @@ async function getPreRecordedAudioBuffer(
     if (kind === "language_confirmed_bn" && cachedLanguageConfirmedBnBuf) return cachedLanguageConfirmedBnBuf;
     if (kind === "language_confirmed_marma" && cachedLanguageConfirmedMarmaBuf) return cachedLanguageConfirmedMarmaBuf;
     if (kind === "language_confirmed_chakma" && cachedLanguageConfirmedChakmaBuf) return cachedLanguageConfirmedChakmaBuf;
+    if (kind === "option3_tracking" && cachedOption3TrackingBuf) return cachedOption3TrackingBuf;
+    if (kind === "case_pin_locked" && cachedCasePinLockedBuf) return cachedCasePinLockedBuf;
 
     const urls: Record<AudioKind, string> = {
       greeting: "/audio/greeting.wav",
@@ -327,6 +333,8 @@ async function getPreRecordedAudioBuffer(
       language_confirmed_bn: "/audio/language_confirmed_bn.wav",
       language_confirmed_marma: "/audio/language_confirmed_marma.wav",
       language_confirmed_chakma: "/audio/language_confirmed_chakma.wav",
+      option3_tracking: "/audio/option3_tracking.wav",
+      case_pin_locked: "/audio/case_pin_locked.wav",
     };
     const res = await fetch(urls[kind]);
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
@@ -349,6 +357,8 @@ async function getPreRecordedAudioBuffer(
     if (kind === "language_confirmed_bn") cachedLanguageConfirmedBnBuf = decoded;
     if (kind === "language_confirmed_marma") cachedLanguageConfirmedMarmaBuf = decoded;
     if (kind === "language_confirmed_chakma") cachedLanguageConfirmedChakmaBuf = decoded;
+    if (kind === "option3_tracking") cachedOption3TrackingBuf = decoded;
+    if (kind === "case_pin_locked") cachedCasePinLockedBuf = decoded;
     return decoded;
   } catch (err) {
     console.warn(`Failed to load/decode pre-recorded ${kind} audio:`, err);
@@ -369,12 +379,18 @@ export type IntakeStep =
   | "phone_primary"
   | "phone_number"
   | "address"
+  | "case_tracking"
+  | "case_pin"
+  | "case_result"
   | "complete";
 
 export type CallEndReason = "caller" | "timeout" | "system";
 
 export interface IntakeData {
   problem: string;
+  /** Case tracking: PIN keyed so far and how many guesses have failed. */
+  casePinDraft: string;
+  casePinAttempts: number;
   hasDisability: boolean | null;
   disabilityType: string | null;
   disabilityTypeCode: string | null;
@@ -647,6 +663,8 @@ export class DirectSession implements VoiceSession {
     phonePrimary: null,
     phoneOperator: null,
     phoneDraft: "",
+    casePinDraft: "",
+    casePinAttempts: 0,
     address: null,
     severityLevel: null,
     severityTags: [],
@@ -668,6 +686,9 @@ export class DirectSession implements VoiceSession {
   // Phase 2: 10s silence after that → hangup with farewell
   private inactivityTimer: ReturnType<typeof setTimeout> | null = null;
   private inactivityPhase: "off" | "query" | "hangup_warn" = "off";
+  /** Case tracking: the PIN being keyed, and how many guesses have failed. */
+  private casePinDraft = "";
+  private casePinAttempts = 0;
   private generalQueryMode: boolean = false; // true after keypad 1 is pressed
   private severityConfirmation: { query: string; classification: SeverityClassification | null } | null = null;
   private assistantTurnText = "";
@@ -945,7 +966,7 @@ export class DirectSession implements VoiceSession {
       "বাংলাদেশ সরকারের বিনামূল্যে আইনি সহায়তা হেল্পলাইনে আপনাকে স্বাগতম। " +
       "আপনাকে সঠিক সেবা প্রদান এবং ভবিষ্যতের প্রয়োজনে আমাদের এই কথোপকথনটি রেকর্ড করা হচ্ছে।";
     const officialDefaultSecondary =
-      "সাধারণ তথ্য জানতে ১ চাপুন, কিন্তু কোনো সমস্যা বা অভিযোগ জানাতে ২ চাপুন।";
+      "সাধারণ তথ্য জানতে ১ চাপুন, কোনো সমস্যা বা অভিযোগ জানাতে ২ চাপুন, আর আপনার নথির অবস্থা জানতে কেস ট্র্যাকিংয়ের জন্য ৩ চাপুন।";
 
     const activeGreeting = config.greeting !== undefined ? config.greeting : officialDefaultGreeting;
      const activeSecondary = this.languageSelectionPending
@@ -1717,6 +1738,15 @@ export class DirectSession implements VoiceSession {
   private armInactivityTimer(): void {
     this.clearInactivityTimer();
     if (!this.isCallActive) return;
+    if (this.isCaseTrackingStep()) {
+      // The mic is muted while a PIN is keyed, so the query/warn/hangup
+      // escalation has nothing to listen for. One longer grace window, then
+      // the call is closed with the recorded sign-off.
+      this.inactivityTimer = setTimeout(() => {
+        void this.handleCaseTrackingTimeout();
+      }, 20_000);
+      return;
+    }
     if (!this.generalQueryMode && this.intakeStep !== "language") return;
     if (this.intakeStep !== "idle" && this.intakeStep !== "application_confirm" && this.intakeStep !== "language") {
       return; // intake chain handles its own pacing
@@ -1726,6 +1756,31 @@ export class DirectSession implements VoiceSession {
     this.inactivityTimer = setTimeout(() => {
       void this.handleInactivityFired();
     }, 10_000);
+  }
+
+  /** Mirrors the PIN draft and attempt count into intakeData for the keypad UI. */
+  private syncCasePinState(): void {
+    this.intakeData.casePinDraft = this.casePinDraft;
+    this.intakeData.casePinAttempts = this.casePinAttempts;
+  }
+
+  private isCaseTrackingStep(): boolean {
+    return this.intakeStep === "case_tracking" || this.intakeStep === "case_pin" || this.intakeStep === "case_result";
+  }
+
+  /** Closes a tracking call that has gone quiet, with the recorded sign-off. */
+  private async handleCaseTrackingTimeout(): Promise<void> {
+    if (!this.isCallActive || !this.isCaseTrackingStep()) return;
+    this.clearInactivityTimer();
+    if (this.isAssistantSpeakingOrPlaying) {
+      this.armInactivityTimer();
+      return;
+    }
+    await this.speakAssistantPhrase(
+      "দীর্ঘক্ষণ কোনো সাড়া না পাওয়ায় কলটি শেষ করা হচ্ছে। যেকোনো আইনি তথ্যের জন্য ১৬৬৯৯ নম্বরে আবার কল করুন। বাংলাদেশ লিগ্যাল এইডের সাথে থাকার জন্য ধন্যবাদ।",
+      "inactivity_hangup",
+    );
+    this.endCaseTrackingCall();
   }
 
   private clearInactivityTimer(): void {
@@ -1805,7 +1860,7 @@ export class DirectSession implements VoiceSession {
     this.emit({ type: "intake_step_changed", step: "idle", data: this.intakeData });
     const label = language === "bn" ? "বাংলা" : language === "marma" ? "মারমা" : "চাকমা";
     await this.speakAssistantPhrase(
-      `${label} ভাষা নির্বাচিত হয়েছে। এখন সাধারণ তথ্যের জন্য ১ এবং সমস্যা বা অভিযোগের জন্য ২ চাপুন।`,
+      `${label} ভাষা নির্বাচিত হয়েছে। এখন সাধারণ তথ্যের জন্য ১, সমস্যা বা অভিযোগের জন্য ২ এবং কেস ট্র্যাকিংয়ের জন্য ৩ চাপুন।`,
       language === "bn"
         ? "language_confirmed_bn"
         : language === "marma"
@@ -2164,6 +2219,7 @@ export class DirectSession implements VoiceSession {
 
   private async handleInactivityFired(): Promise<void> {
     if (!this.isCallActive) return;
+    if (this.isCaseTrackingStep()) return;
     if (!this.generalQueryMode && this.intakeStep !== "language") return;
     if (this.intakeStep !== "idle" && this.intakeStep !== "application_confirm" && this.intakeStep !== "language") {
       this.clearInactivityTimer();
@@ -2192,7 +2248,7 @@ export class DirectSession implements VoiceSession {
       this.emit({ type: "state_changed", state: "speaking" });
 
       const queryText = this.languageSelectionPending
-        ? "প্রথমে আপনার ভাষা নির্বাচন করুন: বাংলার জন্য ১, মারমার জন্য ২, চাকমার জন্য ৩ চাপুন, অথবা মুখে ভাষার নাম বলুন। এরপর সাধারণ তথ্যের জন্য ১ এবং সমস্যা বা অভিযোগের জন্য ২ চাপুন।"
+        ? "প্রথমে আপনার ভাষা নির্বাচন করুন: বাংলার জন্য ১, মারমার জন্য ২, চাকমার জন্য ৩ চাপুন, অথবা মুখে ভাষার নাম বলুন। এরপর সাধারণ তথ্যের জন্য ১, সমস্যা বা অভিযোগের জন্য ২ এবং কেস ট্র্যাকিংয়ের জন্য ৩ চাপুন।"
         : "আপনি কি সরকারি আইনি সহায়তার জন্য কোনো আবেদন বা অভিযোগ নথিভুক্ত করতে চান? হ্যাঁ অথবা না বলুন, অথবা আপনার অন্য কোনো প্রশ্ন থাকলে করতে পারেন।";
       this.emit({ type: "transcript", role: "assistant", text: queryText });
       this.conversationHistory.push({ role: "assistant", content: queryText });
@@ -2375,6 +2431,8 @@ export class DirectSession implements VoiceSession {
        phonePrimary: null,
        phoneOperator: null,
        phoneDraft: "",
+    casePinDraft: "",
+    casePinAttempts: 0,
        address: null,
 
       severityLevel: classification?.severity ?? null,
@@ -2607,6 +2665,143 @@ export class DirectSession implements VoiceSession {
      const operatorText = this.intakeData.phoneOperator === "Robi/Airtel" ? "রবি বা এয়ারটেল" : this.intakeData.phoneOperator;
      await this.speakAssistantPhrase(`ফোন নম্বরটি বৈধ এবং অপারেটর ${operatorText}। এখন আপনার বর্তমান ঠিকানা ও জেলার নাম বলুন।`);
    }
+
+  // ---------- Case tracking (root menu option 3) ----------
+
+  /**
+   * Enters the tracking branch. The PIN is keyed exactly like the phone
+   * number, digit by digit on the keypad, so the caller already knows how to
+   * do it and no new gesture has to be taught.
+   */
+  private async startCaseTracking(): Promise<void> {
+    this.clearApplicationOffer();
+    this.generalQueryMode = false;
+    this.casePinDraft = "";
+    this.casePinAttempts = 0;
+    this.intakeStep = "case_pin";
+    this.syncCasePinState();
+    this.emit({ type: "intake_step_changed", step: "case_pin", data: this.intakeData });
+    this.emit({ type: "state_changed", state: "dtmf_wait" });
+    await this.speakAssistantPhrase(
+      "কেস ট্র্যাকিংয়ের জন্য আপনার চার সংখ্যার ভয়েস লগইন পিনটি ডায়ালপ্যাডে লিখুন। প্রতিটি সংখ্যার পর কোনো কাজ করতে হবে না।",
+      "option3_tracking",
+    );
+    this.armInactivityTimer();
+  }
+
+  /** Appends keypad digits to the PIN and looks it up once four have landed. */
+  private async handleCasePinInput(input: string): Promise<void> {
+    const digits = extractPhoneDigits(input);
+    if (!digits) {
+      await this.speakAssistantPhrase("ডায়ালপ্যাডে আপনার চার সংখ্যার পিনটি লিখুন।");
+      return;
+    }
+
+    this.casePinDraft = `${this.casePinDraft}${digits}`.slice(0, 4);
+    this.syncCasePinState();
+    this.emit({ type: "intake_step_changed", step: "case_pin", data: this.intakeData });
+    if (this.casePinDraft.length < 4) return;
+
+    const pin = this.casePinDraft;
+    this.casePinDraft = "";
+    this.syncCasePinState();
+    this.inactivityPhase = "off";
+    this.emit({ type: "state_changed", state: "listening" });
+
+    type CaseStatus = { found: boolean; state: string | null; docketId: string | null };
+    let result: CaseStatus | null = null;
+    try {
+      const response = await fetch("/api/voice/case-status", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ pin }),
+      });
+      if (response.ok) {
+        result = (await response.json()) as CaseStatus;
+      }
+    } catch {
+      result = null;
+    }
+
+    if (!result) {
+      await this.speakAssistantPhrase(
+        "এই মুহূর্তে পিন যাচাই করা যায়নি। কিছুক্ষণ পর আবার চেষ্টা করুন, অথবা ১৬৬৯৯ এ কল করে সাহায্য নিন।",
+      );
+      this.endCaseTrackingCall();
+      return;
+    }
+
+    if (result.found && result.state) {
+      this.intakeStep = "case_result";
+      this.emit({ type: "intake_step_changed", step: "case_result", data: this.intakeData });
+      const docket = result.docketId ? `আপনার ডকেট নম্বর ${result.docketId}। ` : "";
+      if (result.state === "filed") {
+        await this.speakAssistantPhrase(
+          `${docket}আপনার মামলাটি সফলভাবে নথিভুক্ত হয়েছে এবং প্যানেল আইনজীবীর কাছে পাঠানো হয়েছে। বিস্তারিত জানতে ডিএলএও অফিসে যোগাযোগ করুন অথবা পোর্টালে ডকেট নম্বর দিয়ে ট্র্যাক করুন।`,
+        );
+      } else {
+        await this.speakAssistantPhrase(
+          `${docket}আপনার আবেদনটি সফলভাবে গ্রহণ করা হয়েছে এবং এখনো প্রক্রিয়াধীন আছে। জেলা আইনগত সহায়তা অফিসে যাচাইয়ের পর পরবর্তী ধাপ জানানো হবে।`,
+        );
+      }
+      this.armInactivityTimer();
+      return;
+    }
+
+    // Wrong PIN. Three failures and the call is closed, so the keypad cannot be
+    // used to guess PINs one at a time.
+    this.casePinAttempts += 1;
+    this.syncCasePinState();
+    this.emit({ type: "intake_step_changed", step: "case_pin", data: this.intakeData });
+    if (this.casePinAttempts >= 3) {
+      await this.speakAssistantPhrase(
+        "তিনবার ভুল পিন দেওয়া হয়েছে। নিরাপত্তার জন্য কলটি এখানেই শেষ করা হচ্ছে। সঠিক পিন সম্পর্কে জানতে ভয়েস ইনটেকের সময় যে বার্তা পেয়েছিলেন তা দেখুন, অথবা ১৬৬৯৯ এ কল করুন।",
+        "case_pin_locked",
+      );
+      this.endCaseTrackingCall();
+      return;
+    }
+
+    const left = 3 - this.casePinAttempts;
+    await this.speakAssistantPhrase(
+      `পিনটি সঠিক হয়নি। আর ${left} বার সুযোগ আছে। আবার চার সংখ্যার পিনটি ডায়ালপ্যাডে লিখুন।`,
+    );
+    this.armInactivityTimer();
+  }
+
+  /**
+   * Leaves the tracking branch and hands the caller back to the root menu, so
+   * they can pick another option rather than being dropped into intake.
+   */
+  private async handleCaseResultInput(input: string): Promise<void> {
+    const clean = input.trim();
+    this.emit({ type: "transcript", role: "user", text: clean });
+    this.intakeStep = "idle";
+    this.casePinDraft = "";
+    this.emit({ type: "intake_step_changed", step: "idle", data: this.intakeData });
+    this.inactivityPhase = "off";
+    await this.speakAssistantPhrase(
+      "আরও কোনো তথ্যের প্রয়োজন হলে বলুন। সাধারণ তথ্যের জন্য ১, নতুন সমস্যা বা অভিযোগের জন্য ২, আর কেস ট্র্যাকিংয়ের জন্য ৩ চাপতে পারেন।",
+    );
+    this.armInactivityTimer();
+  }
+
+  /** Closes the call after a tracking attempt is finished or abandoned. */
+  private endCaseTrackingCall(): void {
+    this.casePinDraft = "";
+    this.casePinAttempts = 0;
+    this.syncCasePinState();
+    this.intakeStep = "idle";
+    this.inactivityPhase = "off";
+    if (this.inactivityTimer) {
+      clearTimeout(this.inactivityTimer);
+      this.inactivityTimer = null;
+    }
+    this.emit({ type: "intake_step_changed", step: "idle", data: this.intakeData });
+    setTimeout(() => {
+      this.stop();
+    }, 400);
+  }
 
    public async handleIntakeAddressInput(input: string): Promise<void> {
 
@@ -2909,6 +3104,19 @@ export class DirectSession implements VoiceSession {
 
      // 1. If currently in Intake Chain:
      if (this.intakeStep !== "idle" && this.intakeStep !== "complete") {
+      // Case tracking: PIN digits and the post-result turn are handled before
+      // anything else so a keyed digit can never be read as problem text.
+      if (this.intakeStep === "case_pin") {
+        this.emit({ type: "transcript", role: "user", text: trimmed });
+        await this.handleCasePinInput(trimmed);
+        return;
+      }
+
+      if (this.intakeStep === "case_result") {
+        await this.handleCaseResultInput(trimmed);
+        return;
+      }
+
       if (this.intakeStep === "semantic_confirmation") {
         this.emit({ type: "transcript", role: "user", text: trimmed });
         await this.handleSemanticConfirmationInput(trimmed);
@@ -3005,7 +3213,19 @@ export class DirectSession implements VoiceSession {
 
     }
 
-    // 2. Starting Case Intake Chain via Keypad 2 / Option 2
+    // 2. Case tracking via Keypad 3 / Option 3
+    if (
+      trimmed === "৩ (কেস ট্র্যাকিং)" ||
+      trimmed === "3" ||
+      trimmed === "৩" ||
+      trimmed.includes("ট্র্যাকিং") ||
+      trimmed.includes("কেস ট্র্যাক")
+    ) {
+      await this.startCaseTracking();
+      return;
+    }
+
+    // 3. Starting Case Intake Chain via Keypad 2 / Option 2
     if (
       trimmed === "২ (সমস্যা বা নতুন অভিযোগ)" ||
       trimmed === "2" ||
@@ -3060,6 +3280,8 @@ export class DirectSession implements VoiceSession {
      this.waitingForDtmf = false;
      this.languageSelectionPending = false;
      this.intakeStep = "idle";
+    this.casePinDraft = "";
+    this.casePinAttempts = 0;
     this.intakeData = {
        problem: "",
        hasDisability: null,
@@ -3072,6 +3294,8 @@ export class DirectSession implements VoiceSession {
        phonePrimary: null,
        phoneOperator: null,
        phoneDraft: "",
+    casePinDraft: "",
+    casePinAttempts: 0,
        address: null,
 
       severityLevel: null,

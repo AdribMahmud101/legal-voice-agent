@@ -70,9 +70,12 @@ export type SdkEvent =
     }
   | {
       type: "intake_step_changed";
-       step: "idle" | "language" | "application_confirm" | "problem" | "semantic_confirmation" | "disability" | "disability_type" | "gender" | "name" | "phone_primary" | "phone_number" | "address" | "complete";
+       step: "idle" | "language" | "application_confirm" | "problem" | "semantic_confirmation" | "disability" | "disability_type" | "gender" | "name" | "phone_primary" | "phone_number" | "address" | "case_tracking" | "case_pin" | "case_result" | "complete";
        data: {
          problem?: string;
+        /** Case tracking: PIN keyed so far and how many guesses have failed. */
+        casePinDraft?: string;
+        casePinAttempts?: number;
         hasDisability?: boolean | null;
         disabilityType?: string | null;
         disabilityTypeCode?: string | null;

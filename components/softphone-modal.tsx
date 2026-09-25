@@ -13,12 +13,12 @@ const OFFICIAL_GREETING =
   "আপনাকে সঠিক সেবা প্রদান এবং ভবিষ্যতের প্রয়োজনে আমাদের এই কথোপকথনটি রেকর্ড করা হচ্ছে।";
 
 const OFFICIAL_SECONDARY =
-  "সাধারণ তথ্য জানতে ১ চাপুন, কিন্তু কোনো সমস্যা বা অভিযোগ জানাতে ২ চাপুন।";
+  "সাধারণ তথ্য জানতে ১ চাপুন, কোনো সমস্যা বা অভিযোগ জানাতে ২ চাপুন, আর আপনার নথির অবস্থা জানতে কেস ট্র্যাকিংয়ের জন্য ৩ চাপুন।";
 
 const ROOT_MENU_LABELS: Record<string, string> = {
   "1": "১ (সাধারণ তথ্য ও নিয়মাবলী)",
   "2": "২ (সমস্যা বা নতুন অভিযোগ)",
-  "3": "৩ (মামলার শুনানির তারিখ ও স্ট্যাটাস DLAS-2025-0992)",
+  "3": "৩ (কেস ট্র্যাকিং)",
   "9": "৯ (জরুরি পুলিশ সহায়তা ও নারী নির্যাতন সেল)",
 };
 
@@ -40,6 +40,7 @@ const DTMF_BY_STEP: Partial<Record<IntakeStep, Record<string, string>>> = {
   gender: { "1": "১", "2": "২", "3": "৩" },
   phone_primary: { "1": "১", "2": "২" },
   phone_number: { "0": "0", "1": "1", "2": "2", "3": "3", "4": "4", "5": "5", "6": "6", "7": "7", "8": "8", "9": "9" },
+  case_pin: { "0": "0", "1": "1", "2": "2", "3": "3", "4": "4", "5": "5", "6": "6", "7": "7", "8": "8", "9": "9" },
 };
 
 const DTMF_BADGES: Partial<Record<IntakeStep, Record<string, string>>> = {
@@ -64,6 +65,9 @@ const STEP_HINTS: Partial<Record<IntakeStep, string>> = {
   phone_primary: "🎙️ এই ফোন নম্বরটি কি আপনার প্রাথমিক নম্বর? <strong>হ্যাঁ/না</strong> বলুন অথবা <strong>১ বা ২</strong> চাপুন।",
   phone_number: "🎙️ ১১ সংখ্যার ফোন নম্বর দিন। এখন: <strong>{draft}</strong>",
   address: "🎙️ আপনার জেলা এবং এলাকার ঠিকানাটি বলুন।",
+  case_tracking: "🎙️ কেস ট্র্যাকিং — আপনার পিন দিয়ে আপনার নথির অবস্থা জানা যাবে।",
+  case_pin: "🎙️ চার সংখ্যার ভয়েস লগইন পিন ডায়ালপ্যাডে লিখুন। এখন: <strong>{pin}</strong>{pinTries}",
+  case_result: "🎙️ ফলাফল শোনার পর আরও কিছু জানতে চাইলে বলুন, অথবা মূল মেনুতে ফিরে যেতে ১/২/৩ চাপুন।",
   complete: "✅ কেস সফলভাবে নথিভুক্ত হয়েছে! ডকেট কার্ডে তথ্য সংরক্ষিত।",
 };
 
@@ -552,7 +556,14 @@ export function SoftphoneModal({
                   {(() => {
                     const hint = STEP_HINTS[intakeStep];
                     if (!hint) return null;
-                    const text = hint.replace("{draft}", intakeData.phoneDraft || "—");
+                    const tries = intakeData.casePinAttempts || 0;
+                    const text = hint
+                      .replace("{draft}", intakeData.phoneDraft || "—")
+                      .replace("{pin}", intakeData.casePinDraft || "—")
+                      .replace(
+                        "{pinTries}",
+                        tries > 0 ? ` &nbsp;·&nbsp; ভুল চেষ্টা হয়েছে ${tries}/3` : "",
+                      );
                     return (
                       <span
                         className={intakeStep === "complete" ? "font-bold text-emerald-800" : undefined}
