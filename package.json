@@ -9,7 +9,8 @@
     "build": "next build",
     "start": "next start",
     "lint": "eslint",
-    "test:semantic": "jiti scripts/test-semantic-bridge.ts"
+    "test:semantic": "jiti scripts/test-semantic-bridge.ts",
+    "test:identity": "jiti scripts/test-identity-registry.ts"
   },
   "dependencies": {
     "@ai-sdk/openai": "^4.0.73",

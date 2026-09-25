@@ -18,7 +18,8 @@ Costs real credits (avoid unless relevant):
 
 Free — safe to run routinely:
 - `scripts/verify_sheet_nav.mjs`, `scripts/verify_portal_a11y.mjs`, `scripts/verify_identity.mjs`
-- `npm run test:semantic`
+- `scripts/verify_verification_steps.mjs`, `scripts/verify_progress_visible.mjs`, `scripts/verify_face_capture.mjs`
+- `npm run test:semantic`, `npm run test:identity`
 
 Default regression sweep for ordinary UI/portal work: the free suites + `npx tsc --noEmit`.
 

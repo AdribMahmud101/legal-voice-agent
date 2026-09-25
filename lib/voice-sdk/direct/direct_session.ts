@@ -502,13 +502,18 @@ function parseVoicePin(input: string): string | null {
     .filter(Boolean)
     .join("");
   const compact = raw.replace(/[০-৯]/g, (digit) => String("০১২৩৪৫৬৭৮৯".indexOf(digit))).replace(/\D/g, "");
+  // Speech recognition routinely drops a leading zero, so "942" is accepted for
+  // a PIN issued as "0942" rather than rejected.
+  if (/^\d{3}$/.test(compact)) return `0${compact}`;
   const candidate = spoken.length === 4 ? spoken : compact;
   return /^\d{4}$/.test(candidate) ? candidate : null;
 }
 
 function generateVoicePin(): string {
-  const value = crypto.getRandomValues(new Uint32Array(1))[0] % 10000;
-  return String(value).padStart(4, "0");
+  // Always four spoken digits. A leading zero is easily lost by speech
+  // recognition and makes for a weaker PIN.
+  const value = 1000 + (crypto.getRandomValues(new Uint32Array(1))[0] % 9000);
+  return String(value);
 }
 
 function parseBengaliGender(input: string): string | null {
@@ -669,6 +674,8 @@ export class DirectSession implements VoiceSession {
   private captureAssistantTurn = false;
   private blindAccessState: "off" | "pin_ready" = "off";
   private blindVoicePin: string | null = null;
+  /** One docket and one PIN per call: finalizing twice must not mint a second. */
+  private caseIntakeFinalized = false;
   private voiceLoginMode: "off" | "awaiting_pin" | "awaiting_name" = "off";
   private voiceLoginPin: string | null = null;
   private voiceLoginAttempts = 0;
@@ -851,6 +858,7 @@ export class DirectSession implements VoiceSession {
     this.severityConfirmation = null;
     this.blindAccessState = "off";
     this.blindVoicePin = null;
+    this.caseIntakeFinalized = false;
     this.voiceLoginMode = "off";
     this.voiceLoginPin = null;
     this.voiceLoginAttempts = 0;
@@ -2680,6 +2688,8 @@ export class DirectSession implements VoiceSession {
   }
 
   private async finalizeCaseIntake(): Promise<void> {
+     if (this.caseIntakeFinalized) return;
+     this.caseIntakeFinalized = true;
      const docketId = "DLAS-2025-" + Math.floor(1000 + Math.random() * 9000);
      this.recordingDocketId = docketId;
      const district = extractDistrict(this.intakeData.address || "") || "ঢাকা";
@@ -2751,24 +2761,30 @@ export class DirectSession implements VoiceSession {
        }
      }
 
-     if (isBlind && voicePin) {
-       this.completedBlindUser = citizenUser;
-       this.completedBlindDocketId = docketId;
-       this.blindVoicePin = voicePin;
-       this.blindAccessState = "pin_ready";
-       this.intakeStep = "complete";
-       await this.speakAssistantPhrase(
-         `আপনার আইনি অভিযোগ ও তথ্যবলী সফলভাবে নথিভুক্ত হয়েছে। আপনার ডকেট নম্বর ${docketId}। আপনার ভয়েস লগইন পিন হলো ${voicePin}। আমি আবার বলছি: ${voicePin}। পরবর্তী কলে ১ চেপে লগইন বলুন এবং এই পিন দিয়ে কেসের তথ্য ও আপডেট শুনুন। আবার শুনতে চাইলে স্টার বা অ্যাস্টেরিস্ক চিহ্ন চাপুন, আর কল শেষ করতে হ্যাশ চিহ্ন চাপুন।`,
-       );
-       return;
-     }
-
+     // Everyone gets the written copy, including blind and visually impaired
+     // citizens, for whom it is the only written record of the PIN. Sending it
+     // after the blind branch below left their inbox showing a PIN belonging to
+     // an earlier registration, which read as the PIN having changed.
      if (this.intakeData.phone && voicePin) {
        saveSimulatedSms(
          this.intakeData.phone,
-         `আপনার ১৬৬৯৯ ভয়েস লগইন পিন: ${voicePin}। এই পিনটি ৩০ দিনের জন্য ব্যবহার করতে পারবেন।`,
+         `${this.intakeData.callerName || "নাগরিক"}, আপনার ১৬৬৯৯ ভয়েস লগইন পিন: ${voicePin}। ডকেট নম্বর ${docketId}। এই পিনটি ৩০ দিনের জন্য ব্যবহার করতে পারবেন।`,
        );
      }
+
+     if (isBlind && voicePin) {
+      this.completedBlindUser = citizenUser;
+      this.completedBlindDocketId = docketId;
+      this.blindVoicePin = voicePin;
+      this.blindAccessState = "pin_ready";
+      this.intakeStep = "complete";
+      await this.speakAssistantPhrase(
+        `আপনার আইনি অভিযোগ ও তথ্যবলী সফলভাবে নথিভুক্ত হয়েছে। আপনার ডকেট নম্বর ${docketId}। আপনার ভয়েস লগইন পিন হলো ${voicePin}। আমি আবার বলছি: ${voicePin}। পরবর্তী কলে ১ চেপে লগইন বলুন এবং এই পিন দিয়ে কেসের তথ্য ও আপডেট শুনুন। আবার শুনতে চাইলে স্টার বা অ্যাস্টেরিস্ক চিহ্ন চাপুন, আর কল শেষ করতে হ্যাশ চিহ্ন চাপুন।`,
+      );
+      return;
+    }
+
+
      const closingPrompt =
        "আপনার আইনি অভিযোগ ও তথ্যবলী সফলভাবে নথিভুক্ত করা হয়েছে। আপনার ডকেট নম্বরটি কথোপকথনের রেকর্ডে সংরক্ষিত আছে। আপনার যোগাযোগের ফোন নম্বরে ৪ সংখ্যার ভয়েস লগইন পিন পাঠানো হয়েছে। এই পিন দিয়ে ভবিষ্যতে লগইন করে কেসের তথ্য ও আপডেট দেখতে পারবেন। জাতীয় আইনগত সহায়তা প্রদান সংস্থা থেকে আমাদের প্যানেল আইনজীবী যোগাযোগ করবেন। আপনাকে ধন্যবাদ।";
       await this.speakAssistantPhrase(closingPrompt, "sms_pin_sent");
@@ -3094,6 +3110,7 @@ export class DirectSession implements VoiceSession {
     this.inactivityPhase = "off";
     this.blindAccessState = "off";
     this.blindVoicePin = null;
+    this.caseIntakeFinalized = false;
     this.voiceLoginMode = "off";
     this.voiceLoginPin = null;
     this.voiceLoginAttempts = 0;

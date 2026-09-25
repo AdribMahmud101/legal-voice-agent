@@ -25,6 +25,11 @@ export interface SimulatedRegistryRecord {
 const FIRST_EN = ["Rumana", "Shahana", "Nasrin", "Rehana", "Farida", "Shirin", "Maliha", "Tania"];
 const LAST_EN = ["Begum", "Islam", "Akter", "Khatun", "Sultana", "Haque", "Chowdhury", "Rahman"];
 const FIRST_BN = ["রুমানা", "শাহানা", "নাসরিন", "রেহানা", "ফরিদা", "শিরিন", "মালিহা", "তানিয়া"];
+// Same surnames as LAST_EN, in the same order. The Bangla name must be the same
+// person as the Latin one, so both are built from one index. Deriving the Bangla
+// name from the father's name instead produced a first+father mash that read as
+// a merged name and could never match the Latin form.
+const LAST_BN = ["বেগম", "ইসলাম", "আক্তার", "খাতুন", "সুলতানা", "হক", "চৌধুরী", "রহমান"];
 const FATHER_BN = ["আব্দুল করিম", "মোঃ ইব্রাহিম", "আব্দুল হাকিম", "আনোয়ার হোসেন", "মোঃ রফিকুল"];
 const MOTHER_BN = ["সালমা বেগম", "রহিমা খাতুন", "নাজমা সুলতানা", "ফাতেমা খান", "রহিমা বেগম"];
 const DISTRICT_BN = ["চট্টগ্রাম সদর", "ঢাকা সদর", "রাজশাহী সদর", "খুলনা সদর", "সিলেট সদর"];
@@ -56,7 +61,7 @@ export function simulateRegistryLookup(
     documentType,
     documentNumber,
     nameEn: `${FIRST_EN[firstIdx]} ${LAST_EN[lastIdx]}`,
-    nameBn: `${FIRST_BN[firstIdx]} ${FATHER_BN[fatherIdx].replace(/^মোঃ /, "")}`,
+    nameBn: `${FIRST_BN[firstIdx]} ${LAST_BN[lastIdx]}`,
     fatherName: FATHER_BN[fatherIdx],
     motherName: MOTHER_BN[motherIdx],
     dateOfBirth: `${year}-${String(month).padStart(2, "0")}-${String(day).padStart(2, "0")}`,
