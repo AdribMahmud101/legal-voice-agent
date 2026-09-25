@@ -5,6 +5,7 @@ import { useVoiceSession } from "@/hooks/use-voice-session";
 import { useCaseDocket } from "@/hooks/use-case-docket";
 import { PortalView } from "@/components/portal-view";
 import { SoftphoneModal } from "@/components/softphone-modal";
+import { UniversalChatWidget } from "@/components/chat/universal-chat-widget";
 
 export default function Home() {
   const [isSoftphoneOpen, setIsSoftphoneOpen] = useState(false);
@@ -133,6 +134,9 @@ export default function Home() {
           </div>
         </div>
       )}
+
+      {/* Universal assistant for visitors. Stacked above the 16699 call button. */}
+      <UniversalChatWidget />
     </>
   );
 }

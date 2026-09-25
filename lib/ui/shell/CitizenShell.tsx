@@ -6,6 +6,7 @@ import { usePathname, useRouter } from "next/navigation";
 import { LogOut } from "lucide-react";
 
 import { AgentFab } from "./AgentFab";
+import { UniversalChatWidget } from "@/components/chat/universal-chat-widget";
 import { ResponsiveNav, type ResponsiveNavItem } from "@/components/ui/responsive-nav";
 import { Button } from "@/components/ui/button";
 
@@ -79,6 +80,9 @@ export function CitizenShell({ children }: CitizenShellProps) {
       <main className="mx-auto w-full max-w-[1200px] flex-1 px-4 py-6 sm:px-6">{children}</main>
 
       <AgentFab />
+      {/* Universal assistant: citizens and visitors only. Staff shells
+          (DlaoShell, LawyerShell) deliberately do not mount it. */}
+      <UniversalChatWidget />
     </div>
   );
 }
