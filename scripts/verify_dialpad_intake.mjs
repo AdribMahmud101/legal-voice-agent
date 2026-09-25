@@ -1,5 +1,9 @@
 import { chromium } from 'playwright-core';
 
+// ============================================================================
+//  COSTS PAID CREDITS — drives the real voice pipeline (Soniox STT/TTS + Groq LLM).
+//  Do not run as part of a routine regression sweep. See AGENTS.md.
+// ============================================================================
 async function main() {
   console.log("=== VERIFYING DUAL-MODAL DIALPAD INPUT (1 for হ্যাঁ, 2 for নারী, etc.) ===");
   const browser = await chromium.launch({
@@ -33,9 +37,14 @@ async function main() {
   await page.getByRole('button', { name: /কল করুন/ }).first().click();
   await page.waitForTimeout(2000);
 
+  // Select language first: 1 = Bangla
+  console.log("Selecting language 1 (Bangla)...");
+  await page.evaluate(() => window.__voiceAgent?.sendUserMessage("১"));
+  await page.waitForTimeout(2500);
+
   // Press 2 for intake
   console.log("Pressing 2...");
-  await page.evaluate(() => window.__voiceAgent?.sendUserMessage("২"));
+  await page.evaluate(() => window.__voiceAgent?.sendUserMessage("২ (সমস্যা বা নতুন অভিযোগ)"));
   await page.waitForTimeout(2500);
 
   // Say problem
@@ -48,9 +57,14 @@ async function main() {
   await page.evaluate(() => window.__voiceAgent?.sendUserMessage("১"));
   await page.waitForTimeout(2500);
 
-  // Answer disability with "হ্যাঁ" (short word test!)
+  // Answer disability with "হ্যাঁ" (short word test!) -> routes to disability_type
   console.log("Voice test: Saying short word 'হ্যাঁ'...");
   await page.evaluate(() => window.__voiceAgent?.sendUserMessage("হ্যাঁ"));
+  await page.waitForTimeout(2500);
+
+  // Answer disability type
+  console.log("Voice test: Saying disability type 'দৃষ্টি'...");
+  await page.evaluate(() => window.__voiceAgent?.sendUserMessage("দৃষ্টি"));
   await page.waitForTimeout(2500);
 
   // Answer gender with "নারী"
@@ -63,10 +77,20 @@ async function main() {
   await page.evaluate(() => window.__voiceAgent?.sendUserMessage("ফাতেমা বেগম"));
   await page.waitForTimeout(2500);
 
+  // Confirm this is the primary number
+  console.log("Voice test: Confirming primary number 'হ্যাঁ'...");
+  await page.evaluate(() => window.__voiceAgent?.sendUserMessage("হ্যাঁ"));
+  await page.waitForTimeout(2500);
+
+  // Provide phone number
+  console.log("Voice test: Saying phone '01712345678'...");
+  await page.evaluate(() => window.__voiceAgent?.sendUserMessage("01712345678"));
+  await page.waitForTimeout(2500);
+
   // Answer address
   console.log("Voice test: Saying address 'চট্টগ্রাম সদর'...");
   await page.evaluate(() => window.__voiceAgent?.sendUserMessage("চট্টগ্রাম সদর"));
-  await page.waitForTimeout(5000);
+  await page.waitForTimeout(6000);
 
   // Switch to docket tab to inspect
   await page.getByRole('button', { name: /লাইভ কেস ডকেট/ }).click();
