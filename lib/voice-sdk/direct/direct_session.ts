@@ -34,6 +34,10 @@ import {
   validateBangladeshPhone,
 } from "../../phone/bangladesh-phone";
 import { saveSimulatedSms } from "../../sms/inbox";
+import { BANGLA_LEGAL_AGENT_PROMPT } from "../../agent/prompts/bangla-legal-agent";
+import { interpretSemanticBridge } from "../../agent/semantic-bridge/match-lexicon";
+import type { SemanticBridgeResult } from "../../agent/semantic-bridge/types";
+import type { IndigenousLanguage } from "../../agent/knowledge/indigenous-language-lexicon";
 
 class StreamingAudioPlayer {
   private audioCtx: AudioContext;
@@ -256,6 +260,15 @@ let cachedProblemStartWithNoteBuf: AudioBuffer | null = null;
 let cachedInactivityAppQueryBuf: AudioBuffer | null = null;
 let cachedInactivityNoAckBuf: AudioBuffer | null = null;
 let cachedInactivityHangupBuf: AudioBuffer | null = null;
+let cachedLanguageSelectBuf: AudioBuffer | null = null;
+let cachedLanguageConfirmedBnBuf: AudioBuffer | null = null;
+let cachedLanguageConfirmedMarmaBuf: AudioBuffer | null = null;
+let cachedLanguageConfirmedChakmaBuf: AudioBuffer | null = null;
+
+const LANGUAGE_SELECTION_PROMPT =
+  "প্রথমে আপনার ভাষা নির্বাচন করুন: বাংলার জন্য ১, মারমার জন্য ২, চাকমার জন্য ৩ চাপুন, অথবা মুখে ভাষার নাম বলুন। এরপর সাধারণ তথ্যের জন্য ১ এবং সমস্যা বা অভিযোগের জন্য ২ চাপুন।";
+const LANGUAGE_SELECTION_RETRY_PROMPT =
+  "আমি আপনার ভাষা বুঝতে পারিনি। বাংলার জন্য ১, মারমার জন্য ২, চাকমার জন্য ৩ চাপুন, অথবা মুখে বলুন।";
 
 type AudioKind =
   | "greeting"
@@ -268,7 +281,11 @@ type AudioKind =
   | "problem_start_with_note"
   | "inactivity_app_query"
   | "inactivity_no_ack"
-  | "inactivity_hangup";
+  | "inactivity_hangup"
+  | "language_select"
+  | "language_confirmed_bn"
+  | "language_confirmed_marma"
+  | "language_confirmed_chakma";
 
 async function getPreRecordedAudioBuffer(
   audioCtx: AudioContext,
@@ -288,6 +305,10 @@ async function getPreRecordedAudioBuffer(
 
     if (kind === "inactivity_no_ack" && cachedInactivityNoAckBuf) return cachedInactivityNoAckBuf;
     if (kind === "inactivity_hangup" && cachedInactivityHangupBuf) return cachedInactivityHangupBuf;
+    if (kind === "language_select" && cachedLanguageSelectBuf) return cachedLanguageSelectBuf;
+    if (kind === "language_confirmed_bn" && cachedLanguageConfirmedBnBuf) return cachedLanguageConfirmedBnBuf;
+    if (kind === "language_confirmed_marma" && cachedLanguageConfirmedMarmaBuf) return cachedLanguageConfirmedMarmaBuf;
+    if (kind === "language_confirmed_chakma" && cachedLanguageConfirmedChakmaBuf) return cachedLanguageConfirmedChakmaBuf;
 
     const urls: Record<AudioKind, string> = {
       greeting: "/audio/greeting.wav",
@@ -302,6 +323,10 @@ async function getPreRecordedAudioBuffer(
 
       inactivity_no_ack: "/audio/inactivity_no_ack.wav",
       inactivity_hangup: "/audio/inactivity_hangup.wav",
+      language_select: "/audio/language_select.wav",
+      language_confirmed_bn: "/audio/language_confirmed_bn.wav",
+      language_confirmed_marma: "/audio/language_confirmed_marma.wav",
+      language_confirmed_chakma: "/audio/language_confirmed_chakma.wav",
     };
     const res = await fetch(urls[kind]);
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
@@ -320,6 +345,10 @@ async function getPreRecordedAudioBuffer(
 
     if (kind === "inactivity_no_ack") cachedInactivityNoAckBuf = decoded;
     if (kind === "inactivity_hangup") cachedInactivityHangupBuf = decoded;
+    if (kind === "language_select") cachedLanguageSelectBuf = decoded;
+    if (kind === "language_confirmed_bn") cachedLanguageConfirmedBnBuf = decoded;
+    if (kind === "language_confirmed_marma") cachedLanguageConfirmedMarmaBuf = decoded;
+    if (kind === "language_confirmed_chakma") cachedLanguageConfirmedChakmaBuf = decoded;
     return decoded;
   } catch (err) {
     console.warn(`Failed to load/decode pre-recorded ${kind} audio:`, err);
@@ -329,8 +358,11 @@ async function getPreRecordedAudioBuffer(
 
 export type IntakeStep =
   | "idle"
-  | "problem"
-  | "disability"
+   | "language"
+   | "application_confirm"
+   | "problem"
+   | "semantic_confirmation"
+   | "disability"
   | "disability_type"
   | "gender"
   | "name"
@@ -338,6 +370,8 @@ export type IntakeStep =
   | "phone_number"
   | "address"
   | "complete";
+
+export type CallEndReason = "caller" | "timeout" | "system";
 
 export interface IntakeData {
   problem: string;
@@ -351,6 +385,14 @@ export interface IntakeData {
   phoneOperator: string | null;
   phoneDraft: string;
   address: string | null;
+  indigenousLanguage: IndigenousLanguage;
+  semanticMatched: boolean;
+  semanticConfidence: number | null;
+  semanticIntent: string | null;
+  semanticNormalizedBangla: string | null;
+  semanticQuestion: string | null;
+  semanticMatchedTerms: string[];
+  semanticLegalIntentBn: string | null;
   severityLevel: SeverityLevel | null;
   severityTags: string[];
   severityFactors: string[];
@@ -582,6 +624,9 @@ export class DirectSession implements VoiceSession {
   private isAssistantSpeakingOrPlaying: boolean = false;
   private lastConfig: SdkConfig | null = null;
   private callerPhone: string | null = null;
+  private indigenousLanguage: IndigenousLanguage = "bn";
+  private languageSelectionPending = true;
+  private pendingSemanticResult: SemanticBridgeResult | null = null;
   public sessionId: string = "call-" + Math.random().toString(36).substring(2, 9);
 
   // Multi-step case intake chain state
@@ -602,8 +647,16 @@ export class DirectSession implements VoiceSession {
     severityTags: [],
     severityFactors: [],
     severityCategory: null,
-    severityCaseReference: null,
-  };
+     severityCaseReference: null,
+     indigenousLanguage: "bn",
+     semanticMatched: false,
+     semanticConfidence: null,
+     semanticIntent: null,
+     semanticNormalizedBangla: null,
+      semanticQuestion: null,
+      semanticMatchedTerms: [],
+      semanticLegalIntentBn: null,
+    };
 
   // Inactivity timer state (general inquiry / keypad-1 mode)
   // Phase 1: 10s silence → ask if wants to file case
@@ -611,7 +664,9 @@ export class DirectSession implements VoiceSession {
   private inactivityTimer: ReturnType<typeof setTimeout> | null = null;
   private inactivityPhase: "off" | "query" | "hangup_warn" = "off";
   private generalQueryMode: boolean = false; // true after keypad 1 is pressed
-  private severityConfirmation: { query: string; classification: SeverityClassification } | null = null;
+  private severityConfirmation: { query: string; classification: SeverityClassification | null } | null = null;
+  private assistantTurnText = "";
+  private captureAssistantTurn = false;
   private blindAccessState: "off" | "pin_ready" = "off";
   private blindVoicePin: string | null = null;
   private voiceLoginMode: "off" | "awaiting_pin" | "awaiting_name" = "off";
@@ -779,6 +834,11 @@ export class DirectSession implements VoiceSession {
   public async start(config: SdkConfig): Promise<void> {
      this.lastConfig = config;
      this.callerPhone = config.callerPhone ? normalizeBangladeshPhone(config.callerPhone) : null;
+     this.indigenousLanguage = "bn";
+     this.languageSelectionPending = true;
+     this.intakeStep = "language";
+     this.emit({ type: "intake_step_changed", step: "language", data: this.intakeData });
+     this.pendingSemanticResult = null;
      this.isCallActive = true;
 
     this.waitingForDtmf = false;
@@ -797,18 +857,12 @@ export class DirectSession implements VoiceSession {
     this.authenticatedUser = null;
     this.completedBlindUser = null;
     this.completedBlindDocketId = null;
-    const llmUrl = (config.llmProxyUrl || "/api/llm").replace(/\/+$/, "");
-    const llmModel = config.llmModel || "openai/gpt-oss-120b";
-    const language = config.language || "bn";
+    const language = "bn";
     const voiceId = config.voiceId || "Priya";
     const ttsProxyUrl =
       config.ttsProxyUrl ||
       `ws://${typeof window !== "undefined" ? window.location.hostname : "localhost"}:8200/v1/tts`;
-    const systemPrompt =
-      config.systemPrompt ||
-      "আপনি একজন নির্ভুল এবং সংক্ষিপ্ত আইনি সহায়ক। বাংলায় স্পষ্ট ও সংক্ষিপ্ত বাক্যে উত্তর দিন। " +
-        "কোনো মার্কডাউন, বুলেট পয়েন্ট বা অতিরিক্ত দীর্ঘ ব্যাখ্যা ব্যবহার করবেন না। " +
-        "আইনি বিষয়বহির্ভূত কোনো প্রশ্ন করা হলে বলুন যে আপনার প্রাসঙ্গিক নথিপত্র পর্যালোচনা করা প্রয়োজন।";
+    const systemPrompt = BANGLA_LEGAL_AGENT_PROMPT;
 
     this.conversationHistory = [{ role: "system", content: systemPrompt }];
     this.turnPhase.reset();
@@ -886,8 +940,9 @@ export class DirectSession implements VoiceSession {
       "সাধারণ তথ্য জানতে ১ চাপুন, কিন্তু কোনো সমস্যা বা অভিযোগ জানাতে ২ চাপুন।";
 
     const activeGreeting = config.greeting !== undefined ? config.greeting : officialDefaultGreeting;
-    const activeSecondary =
-      config.secondaryPrompt !== undefined ? config.secondaryPrompt : officialDefaultSecondary;
+     const activeSecondary = this.languageSelectionPending
+       ? LANGUAGE_SELECTION_PROMPT
+       : config.secondaryPrompt !== undefined ? config.secondaryPrompt : officialDefaultSecondary;
 
     if (activeGreeting && !this.greetingSpoken) {
       this.greetingSpoken = true;
@@ -906,21 +961,41 @@ export class DirectSession implements VoiceSession {
       }
 
       void (async () => {
+        let playedLanguageSelection = false;
         try {
           if (!this.greetingActive || !this.audioCtx || !this.player) return;
 
           // Load and play pre-recorded Soniox audio (saves 100% of TTS credits, 0ms synthesis delay)
           const greetingBuf = await getPreRecordedAudioBuffer(this.audioCtx, "greeting");
-          if (greetingBuf && this.greetingActive && this.player) {
-            this.player.playAudioBuffer(greetingBuf);
-          }
-          const ivrBuf = await getPreRecordedAudioBuffer(this.audioCtx, "ivr");
-          if (ivrBuf && this.greetingActive && this.player) {
-            this.player.playAudioBuffer(ivrBuf);
-          }
-          if (this.greetingActive && this.player) {
-            await this.player.waitUntilFinished();
-          }
+           if (greetingBuf && this.greetingActive && this.player) {
+             this.player.playAudioBuffer(greetingBuf);
+           }
+           if (!this.languageSelectionPending) {
+             const ivrBuf = await getPreRecordedAudioBuffer(this.audioCtx, "ivr");
+             if (ivrBuf && this.greetingActive && this.player) {
+               this.player.playAudioBuffer(ivrBuf);
+             }
+           } else {
+             const languageBuf = await getPreRecordedAudioBuffer(this.audioCtx, "language_select");
+             if (languageBuf && this.greetingActive && this.player) {
+               this.player.playAudioBuffer(languageBuf);
+               playedLanguageSelection = true;
+             }
+           }
+           if (this.greetingActive && this.player) {
+             await this.player.waitUntilFinished();
+           }
+           if (
+             this.languageSelectionPending &&
+             !playedLanguageSelection &&
+             this.greetingActive &&
+             this.ttsWs
+           ) {
+             await this.ttsWs.speakWhenReady(activeSecondary);
+             this.ttsWs.flush();
+             await this.ttsWs.waitForFlush(8000);
+             await this.player?.waitUntilFinished();
+           }
         } catch (err) {
           console.warn("Failed to play pre-recorded audio, falling back to TTS:", err);
           if (this.ttsWs && this.greetingActive) {
@@ -940,9 +1015,11 @@ export class DirectSession implements VoiceSession {
             this.setAssistantSpeaking(false);
             this.turnPhase.reset();
             if (this.isCallActive) {
-              // IVR gate: transcription stays OFF until the caller presses a
-              // DTMF key (1/2/...). Enter the "press a key" wait phase.
-              this.enterDtmfWait();
+             // IVR gate: transcription stays OFF until the caller presses a
+             // DTMF key (1/2/...). Enter the "press a key" wait phase.
+             this.enterDtmfWait();
+             // Still nothing from the caller? Re-ask, then warn, then hang up.
+             this.armInactivityTimer();
             }
           }
         }
@@ -987,10 +1064,10 @@ export class DirectSession implements VoiceSession {
       return;
     }
 
-    await this.flushAccumulatedUtterance(reason);
+     await this.flushAccumulatedUtterance();
   }
 
-  private async flushAccumulatedUtterance(reason: string) {
+  private async flushAccumulatedUtterance() {
     if (this.speechFinalDebounceTimer) {
       clearTimeout(this.speechFinalDebounceTimer);
       this.speechFinalDebounceTimer = null;
@@ -1007,17 +1084,53 @@ export class DirectSession implements VoiceSession {
     this.accumulatedSegments = [];
     this.currentTranscript = "";
 
-     if (this.blindAccessState === "pin_ready") {
-       if (await this.handleBlindPinInput(fullText)) return;
-     }
-     if (this.generalQueryMode && (await this.handleVoiceInput(fullText))) return;
+      if (this.blindAccessState === "pin_ready") {
+        if (await this.handleBlindPinInput(fullText)) return;
+      }
+      if (this.languageSelectionPending) {
+        if (await this.handleLanguageSelectionInput(fullText)) return;
+      }
+      if (this.isCallCutIntent(fullText)) {
+        await this.cutCall("caller");
+        return;
+      }
+      if (this.severityConfirmation && (await this.handleApplicationOfferInput(fullText))) return;
+      if (this.generalQueryMode && (await this.handleVoiceInput(fullText))) return;
 
      // Case Intake Multi-Step Chaining Voice Hook
-     if (this.intakeStep !== "idle" && this.intakeStep !== "complete") {
+     if (this.intakeStep === "semantic_confirmation") {
+       await this.handleSemanticConfirmationInput(fullText);
+       return;
+     }
 
-      await this.handleIntakeVoiceInput(fullText);
-      return;
-    }
+     if (this.intakeStep !== "idle" && this.intakeStep !== "complete") {
+       if (this.intakeStep === "problem" && this.indigenousLanguage !== "bn") {
+         const semanticResult = await this.interpretIndigenousUtterance(fullText);
+         if (semanticResult?.matched && semanticResult.confidence >= 0.6) {
+           this.pendingSemanticResult = semanticResult;
+           this.intakeData.semanticMatched = true;
+           this.intakeData.semanticConfidence = semanticResult.confidence;
+           this.intakeData.semanticIntent = semanticResult.legalIntent;
+           this.intakeData.semanticNormalizedBangla = semanticResult.normalizedBangla;
+           this.intakeData.semanticMatchedTerms = semanticResult.matches.map((match) => match.matchedText);
+           this.intakeData.semanticLegalIntentBn = semanticResult.legalIntentBn;
+           this.intakeData.semanticQuestion = semanticResult.clarificationQuestionBn;
+           this.intakeStep = "semantic_confirmation";
+           this.emit({
+             type: "intake_step_changed",
+             step: "semantic_confirmation",
+             data: this.intakeData,
+           });
+           if (semanticResult.clarificationQuestionBn) {
+             await this.speakAssistantPhrase(semanticResult.clarificationQuestionBn);
+           }
+           return;
+         }
+       }
+
+       await this.handleIntakeVoiceInput(fullText);
+       return;
+     }
 
      if (this.generalQueryMode) {
        this.clearInactivityTimer();
@@ -1266,6 +1379,7 @@ export class DirectSession implements VoiceSession {
 
       this.conversationHistory.push({ role: "user", content: textToPrompt });
       await this.generateAndSpeakResponse(llmUrl, llmModel, stt_ms, t_speech_end);
+      this.armOfferFromAssistantTurn(textToPrompt);
     } else if (action.type === "RejectNoise") {
       // Noise was rejected but playback (+ mic mute) may already have been torn
       // down by InterruptTts — always restore the listening state so the session
@@ -1282,7 +1396,41 @@ export class DirectSession implements VoiceSession {
 
       this.conversationHistory.push({ role: "user", content: textToPrompt });
       await this.generateAndSpeakResponse(llmUrl, llmModel, stt_ms, t_speech_end);
+      this.armOfferFromAssistantTurn(textToPrompt);
     }
+  }
+
+  /**
+   * Broad, deterministic signal that the caller has described a personal legal
+   * problem. The LLM is allowed to phrase its offer however it likes, so the
+   * offer question itself must never depend on the LLM's wording.
+   */
+  private looksLikePersonalProblem(text: string): boolean {
+    const personal = /(আমার|আমাকে|আমাদের|আমি|আমার\s+(স্বামী|স্ত্রী|পিতা|মাতা|ছেলে|মেয়ে|বাবা|মা))/;
+    const problem =
+      /(মারধর|মারতে|মারেন|মেরেছে|মারছে|নির্যাতন|হয়েছে|হচ্ছে|ঘটেছে|ঘটে|সমস্যা|অভিযোগ|চাই|চাইছি|চায়|পাইনি|পাই|দেন না|দেয় না|নেই|নাই|চাপ|চাপে|ভয়|পারে না|পারিনি|বাধা|অন্যায়|প্রতারণা|জমি|দখল|বেতন|চাকরি|গার্মেন্ট|মামলা|জামিন|ধার|ঋণ|তালাক|যৌতুক|কর্তার|প্রতারক|হয়েছে)/;
+    return personal.test(text) && problem.test(text);
+  }
+
+  private armOfferFromAssistantTurn(userText: string): void {
+    if (!this.isCallActive || !this.generalQueryMode) return;
+    if (this.severityConfirmation) return;
+    const query = userText.trim();
+    if (!query) return;
+
+    if (this.assistantOfferedApplication(this.assistantTurnText)) {
+      this.armApplicationOffer(query);
+      return;
+    }
+
+    if (!this.looksLikePersonalProblem(query)) return;
+
+    // The LLM answered but never asked the yes/no question. Ask it ourselves so
+    // the caller always gets one tracked, answerable offer.
+    this.armApplicationOffer(query);
+    void this.speakAssistantPhrase(
+      "আপনার সমস্যাটি বুঝতে পেরেছি। আপনি কি এই সমস্যার জন্য আইনি সহায়তা আবেদন ও অভিযোগ নথিভুক্ত করতে চান? হ্যাঁ অথবা না বলুন, অথবা ডায়ালপ্যাডে ১ অথবা ২ চাপুন।",
+    );
   }
 
   private interruptAssistant() {
@@ -1321,6 +1469,8 @@ export class DirectSession implements VoiceSession {
     this.interruptAssistant();
     const activityEpoch = this.activityEpoch;
     this.t_first_pcm_chunk = 0;
+    this.assistantTurnText = "";
+    this.captureAssistantTurn = true;
 
     const t_llm_start = performance.now();
     let t_llm_ttft = 0;
@@ -1368,6 +1518,7 @@ export class DirectSession implements VoiceSession {
           model: llmModel,
            messages: this.conversationHistory,
            authenticatedUser: this.authenticatedUser,
+           indigenousLanguage: this.indigenousLanguage,
            stream: true,
 
           temperature: 0.7,
@@ -1501,6 +1652,7 @@ export class DirectSession implements VoiceSession {
         this.emit({ type: "error", message: `Direct LLM Error: ${String(err)}` });
       }
     } finally {
+      this.captureAssistantTurn = false;
       if (this.activityEpoch === activityEpoch) {
         if (this.activeAbortCtrl === abortCtrl) {
           this.activeAbortCtrl = null;
@@ -1527,6 +1679,10 @@ export class DirectSession implements VoiceSession {
    * mic path is ignored — until a key lands via sendUserMessage().
    */
   private enterDtmfWait() {
+    if (this.languageSelectionPending) {
+      this.emit({ type: "state_changed", state: "listening" });
+      return;
+    }
     this.waitingForDtmf = true;
     this.turnPhase.reset();
     this.emit({ type: "mic_mute_changed", muted: true });
@@ -1552,8 +1708,11 @@ export class DirectSession implements VoiceSession {
    */
   private armInactivityTimer(): void {
     this.clearInactivityTimer();
-    if (!this.generalQueryMode || !this.isCallActive) return;
-    if (this.intakeStep !== "idle") return; // intake chain handles its own pacing
+    if (!this.isCallActive) return;
+    if (!this.generalQueryMode && this.intakeStep !== "language") return;
+    if (this.intakeStep !== "idle" && this.intakeStep !== "application_confirm" && this.intakeStep !== "language") {
+      return; // intake chain handles its own pacing
+    }
     if (this.voiceLoginMode !== "off") return;
 
     this.inactivityTimer = setTimeout(() => {
@@ -1617,6 +1776,69 @@ export class DirectSession implements VoiceSession {
       /(আমার|আমার আগের).*(তথ্য|অবস্থা|আপডেট|কেস|আবেদন|মামলা)/i.test(input) ||
       /(কেস|আবেদন|মামলা).*(অবস্থা|আপডেট|স্ট্যাটাস|ট্র্যাক|খবর|কী হয়েছে)|ট্র্যাক.*(?:কেস|আবেদন)/i.test(input)
     );
+  }
+
+  private getLanguageFromInput(input: string): IndigenousLanguage | null {
+    const clean = input.trim();
+    const digit = clean.match(/[123]/)?.[0] || clean.match(/[১২৩]/)?.[0];
+    if (digit === "1" || digit === "১" || /(বাংলা|bangla|bangali|bn)/i.test(clean)) return "bn";
+    if (digit === "2" || digit === "২" || /(মারমা|marma)/i.test(clean)) return "marma";
+    if (digit === "3" || digit === "৩" || /(চাকমা|chakma)/i.test(clean)) return "chakma";
+    return null;
+  }
+
+  private async handleLanguageSelectionInput(input: string): Promise<boolean> {
+    const language = this.getLanguageFromInput(input);
+    if (!language) return false;
+    this.indigenousLanguage = language;
+    this.languageSelectionPending = false;
+    this.intakeStep = "idle";
+    this.intakeData.indigenousLanguage = language;
+    this.emit({ type: "intake_step_changed", step: "idle", data: this.intakeData });
+    const label = language === "bn" ? "বাংলা" : language === "marma" ? "মারমা" : "চাকমা";
+    await this.speakAssistantPhrase(
+      `${label} ভাষা নির্বাচিত হয়েছে। এখন সাধারণ তথ্যের জন্য ১ এবং সমস্যা বা অভিযোগের জন্য ২ চাপুন।`,
+      language === "bn"
+        ? "language_confirmed_bn"
+        : language === "marma"
+          ? "language_confirmed_marma"
+          : "language_confirmed_chakma",
+    );
+    if (this.isCallActive) this.enterDtmfWait();
+    return true;
+  }
+
+  private isCallCutIntent(input: string): boolean {
+    const clean = input.trim();
+    if (/(কল|ফোন|কথোপকথন).*(করতে চাই না|করবেন না|কাটবেন না|রাখবেন না|নয়|না রাখুন)/i.test(clean)) return false;
+    return (
+      /^(#|#️⃣)$/.test(clean) ||
+      /(কল|ফোন|কথোপকথন).*(শেষ করুন|শেষ করো|বন্ধ করুন|বন্ধ করো|কাটুন|কেটে দিন|ছাড়ুন|রেখে দিন|শেষ করতে চাই)/i.test(clean) ||
+      /^(হ্যাঁ|হাঁ|জি)[,\s]+.*(কল|ফোন).*(শেষ|বন্ধ|কাটা)/i.test(clean)
+    );
+  }
+
+  public async cutCall(reason: CallEndReason = "caller"): Promise<void> {
+    if (!this.isCallActive) return;
+    const activityEpoch = ++this.activityEpoch;
+    this.clearInactivityTimer();
+    this.inactivityPhase = "off";
+    this.generalQueryMode = false;
+    this.voiceLoginMode = "off";
+    this.exitDtmfWait();
+    this.interruptAssistant();
+    this.setAssistantSpeaking(true);
+    this.emit({ type: "state_changed", state: "speaking" });
+    const text = reason === "timeout"
+      ? "দীর্ঘক্ষণ কোনো সাড়া না পাওয়ায় কলটি শেষ করা হচ্ছে। যেকোনো আইনি তথ্যের জন্য ১৬৬৯৯ নম্বরে আবার কল করুন। বাংলাদেশ লিগ্যাল এইডের সাথে থাকার জন্য ধন্যবাদ।"
+      : "ঠিক আছে, আপনার কল শেষ করা হচ্ছে। আপনার প্রয়োজনে ১৬৬৯৯ নম্বরে আবার কল করুন। ধন্যবাদ।";
+    await this.speakAssistantPhrase(text);
+    if (this.isCallActive && this.activityEpoch === activityEpoch) {
+      this.emit({ type: "system", text: reason === "timeout" ? "INACTIVITY_HANGUP" : "CALLER_HANGUP" });
+      setTimeout(() => {
+        if (this.isCallActive && this.activityEpoch === activityEpoch) this.stop();
+      }, 250);
+    }
   }
 
   private async handleVoiceInput(input: string): Promise<boolean> {
@@ -1766,44 +1988,78 @@ export class DirectSession implements VoiceSession {
     }
   }
 
-  private async handleSeverityInput(input: string): Promise<boolean> {
-    if (!this.generalQueryMode) return false;
+  /**
+   * The assistant can offer to file an application either from the severity
+   * classifier or ad-hoc from the LLM. Both must arm the same tracked state so
+   * the caller's next "হ্যাঁ" always reaches the intake chain instead of the LLM.
+   */
+  private assistantOfferedApplication(text: string): boolean {
+    const clean = text.trim();
+    if (!clean) return false;
+    const offer = /(নথিভুক্ত করতে চান|আবেদন করতে চান|অভিযোগ করতে চান|আবেদন চালিয়ে যেতে চান|আবেদন ও অভিযোগ নথিভুক্ত|আবেদন দায়ের|আবেদন নিবন্ধন|কেস নথিভুক্ত|আবেদন খুলতে চান)/i.test(clean);
+    if (!offer) return false;
+    // Must read as a question awaiting an answer, not a statement of fact.
+    return /[?।ঃ]\s*$/.test(clean) || /(হ্যাঁ|হাঁ|হ্যা|জি|না|নাই|নেই)/.test(clean);
+  }
+
+  private armApplicationOffer(query: string, classification: SeverityClassification | null = null): void {
+    this.severityConfirmation = { query, classification };
+    this.intakeStep = "application_confirm";
+    this.emit({ type: "intake_step_changed", step: "application_confirm", data: this.intakeData });
+  }
+
+  private clearApplicationOffer(): void {
+    this.severityConfirmation = null;
+    if (this.intakeStep === "application_confirm") {
+      this.intakeStep = "idle";
+      this.emit({ type: "intake_step_changed", step: "idle", data: this.intakeData });
+    }
+  }
+
+  private async handleApplicationOfferInput(input: string): Promise<boolean> {
+    const offer = this.severityConfirmation;
+    if (!offer) return false;
     const clean = input.trim();
     if (!clean) return false;
 
-    const pending = this.severityConfirmation;
-    if (pending) {
-      const answer = parseBengaliYesNo(clean);
-      this.emit({ type: "transcript", role: "user", text: clean });
-      this.conversationHistory.push({ role: "user", content: clean });
-
-      if (answer === true) {
-        this.severityConfirmation = null;
-        await this.startCaseIntakeChain(pending.query, pending.classification);
-        return true;
-      }
-
-      if (answer === false) {
-        this.severityConfirmation = null;
-        const noAckText = "ঠিক আছে, আমি শুনছি। আপনার যেকোনো আইনি প্রশ্ন বা পরামর্শের প্রয়োজন হলে নির্দ্বিধায় বলুন, আমি সাহায্য করছি।";
-        await this.speakAssistantPhrase(noAckText, "inactivity_no_ack");
-        this.inactivityPhase = "off";
-        this.armInactivityTimer();
-        return true;
-      }
-
+    this.emit({ type: "transcript", role: "user", text: clean });
+    const answer = parseBengaliYesNo(clean);
+    if (answer === null) {
       await this.speakAssistantPhrase(
-        "আপনি কি এই সমস্যার জন্য আইনি সহায়তা আবেদন ও অভিযোগ নথিভুক্ত করতে চান? হ্যাঁ অথবা না বলুন।",
+        "আপনি কি এই সমস্যার জন্য আইনি সহায়তা আবেদন ও অভিযোগ নথিভুক্ত করতে চান? হ্যাঁ অথবা না বলুন, অথবা ডায়ালপ্যাডে ১ অথবা ২ চাপুন।",
       );
       this.inactivityPhase = "off";
       this.armInactivityTimer();
       return true;
     }
 
+    this.clearApplicationOffer();
+    this.conversationHistory.push({ role: "user", content: clean });
+
+    if (answer) {
+      await this.startCaseIntakeChain(offer.query, offer.classification ?? undefined);      return true;
+    }
+
+    await this.speakAssistantPhrase(
+      "ঠিক আছে, আমি শুনছি। আপনার যেকোনো আইনি প্রশ্ন বা পরামর্শের প্রয়োজন হলে নির্দ্বিধায় বলুন, আমি সাহায্য করছি।",
+      "inactivity_no_ack",
+    );
+    this.inactivityPhase = "off";
+    this.armInactivityTimer();
+    return true;
+  }
+
+  private async handleSeverityInput(input: string): Promise<boolean> {
+    if (!this.generalQueryMode) return false;
+    const clean = input.trim();
+    if (!clean) return false;
+    // A pending offer owns the next turn; see handleApplicationOfferInput.
+    if (this.severityConfirmation) return false;
+
     const classification = classifySeverity(clean);
     if (!classification.needsApplicationConfirmation) return false;
 
-    this.severityConfirmation = { query: clean, classification };
+    this.armApplicationOffer(clean, classification);
     this.emit({ type: "transcript", role: "user", text: clean });
     this.conversationHistory.push({ role: "user", content: clean });
     void this.syncDocketPatch({
@@ -1847,12 +2103,12 @@ export class DirectSession implements VoiceSession {
 
     if (isYes) {
       const pendingSeverity = this.severityConfirmation;
-      this.severityConfirmation = null;
-      await this.startCaseIntakeChain(pendingSeverity?.query ?? "", pendingSeverity?.classification);
+      this.clearApplicationOffer();
+      await this.startCaseIntakeChain(pendingSeverity?.query ?? "", pendingSeverity?.classification ?? undefined);
       return true;
     }
 
-    this.severityConfirmation = null;
+    this.clearApplicationOffer();
     const noAckText = "ঠিক আছে, আমি শুনছি। আপনার যেকোনো আইনি প্রশ্ন বা পরামর্শের প্রয়োজন হলে নির্দ্বিধায় বলুন, আমি সাহায্য করছি।";
     this.interruptAssistant();
     this.setAssistantSpeaking(true);
@@ -1899,8 +2155,9 @@ export class DirectSession implements VoiceSession {
   }
 
   private async handleInactivityFired(): Promise<void> {
-    if (!this.isCallActive || !this.generalQueryMode) return;
-    if (this.intakeStep !== "idle") {
+    if (!this.isCallActive) return;
+    if (!this.generalQueryMode && this.intakeStep !== "language") return;
+    if (this.intakeStep !== "idle" && this.intakeStep !== "application_confirm" && this.intakeStep !== "language") {
       this.clearInactivityTimer();
       return;
     }
@@ -1926,32 +2183,22 @@ export class DirectSession implements VoiceSession {
       this.setAssistantSpeaking(true);
       this.emit({ type: "state_changed", state: "speaking" });
 
-      const queryText = "আপনি কি সরকারি আইনি সহায়তার জন্য কোনো আবেদন বা অভিযোগ নথিভুক্ত করতে চান? হ্যাঁ অথবা না বলুন, অথবা আপনার অন্য কোনো প্রশ্ন থাকলে করতে পারেন।";
+      const queryText = this.languageSelectionPending
+        ? "প্রথমে আপনার ভাষা নির্বাচন করুন: বাংলার জন্য ১, মারমার জন্য ২, চাকমার জন্য ৩ চাপুন, অথবা মুখে ভাষার নাম বলুন। এরপর সাধারণ তথ্যের জন্য ১ এবং সমস্যা বা অভিযোগের জন্য ২ চাপুন।"
+        : "আপনি কি সরকারি আইনি সহায়তার জন্য কোনো আবেদন বা অভিযোগ নথিভুক্ত করতে চান? হ্যাঁ অথবা না বলুন, অথবা আপনার অন্য কোনো প্রশ্ন থাকলে করতে পারেন।";
       this.emit({ type: "transcript", role: "assistant", text: queryText });
       this.conversationHistory.push({ role: "assistant", content: queryText });
 
-      await this.speakAssistantPhrase(queryText, "inactivity_app_query");
-      if (this.isCallActive && this.activityEpoch === activityEpoch) {
-        this.inactivityPhase = "off";
-        this.armInactivityTimer();
-      }
+      await this.speakAssistantPhrase(
+        queryText,
+        this.languageSelectionPending ? "language_select" : "inactivity_app_query",
+      );
+       if (this.isCallActive && this.activityEpoch === activityEpoch) {
+         this.inactivityPhase = "hangup_warn";
+         this.armInactivityTimer();
+       }
     } else {
-      // === Phase 2: No response after query → hangup ===
-      this.inactivityPhase = "off";
-      this.generalQueryMode = false;
-      this.interruptAssistant();
-      this.setAssistantSpeaking(true);
-      this.emit({ type: "state_changed", state: "speaking" });
-
-      const hangupText = "দীর্ঘক্ষণ কোনো সাড়া না পাওয়ায় কলটি শেষ করা হচ্ছে। যেকোনো আইনি তথ্যের জন্য ১৬৬৯৯ নম্বরে আবার কল করুন। বাংলাদেশ লিগ্যাল এইডের সাথে থাকার জন্য ধন্যবাদ।";
-      this.emit({ type: "transcript", role: "assistant", text: hangupText });
-      this.conversationHistory.push({ role: "assistant", content: hangupText });
-
-      await this.speakAssistantPhrase(hangupText, "inactivity_hangup");
-      if (this.isCallActive && this.activityEpoch === activityEpoch) {
-        this.emit({ type: "system", text: "INACTIVITY_HANGUP" });
-        setTimeout(() => { if (this.isCallActive) this.stop(); }, 300);
-      }
+      await this.cutCall("timeout");
     }
   }
 
@@ -1972,6 +2219,7 @@ export class DirectSession implements VoiceSession {
   ): Promise<void> {
     const clean = text.trim();
     if (!clean) return;
+    if (this.captureAssistantTurn) this.assistantTurnText += `${clean} `;
     this.interruptAudioPlayback();
     const activityEpoch = this.activityEpoch;
     this.setAssistantSpeaking(true);
@@ -2029,6 +2277,66 @@ export class DirectSession implements VoiceSession {
     }
   }
 
+  private async interpretIndigenousUtterance(transcript: string): Promise<SemanticBridgeResult | null> {
+    if (this.indigenousLanguage === "bn") return null;
+    try {
+      const response = await fetch("/api/indigenous-language/interpret", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          sessionId: this.sessionId,
+          transcript,
+          language: this.indigenousLanguage,
+        }),
+      });
+      if (response.ok) {
+        const payload = (await response.json()) as { result?: SemanticBridgeResult };
+        if (payload.result) return payload.result;
+      }
+    } catch {}
+    return interpretSemanticBridge(transcript, this.indigenousLanguage);
+  }
+
+  private async handleSemanticConfirmationInput(input: string): Promise<boolean> {
+    const result = this.pendingSemanticResult;
+    if (!result) {
+      this.intakeStep = "problem";
+      this.pendingSemanticResult = null;
+      this.emit({ type: "intake_step_changed", step: "problem", data: this.intakeData });
+      return true;
+    }
+    const confirmed = /^(হ্যাঁ|হাঁ|হ্যা|জি|ঠিক|সঠিক|yes|y|1|১|বুঝেছি|ঠিক আছে)/i.test(input.trim());
+    const rejected = /^(না|নাই|নেই|না না|ভুল|টাকাবাজ|না$|no|n|2|২)/i.test(input.trim());
+    if (confirmed) {
+      this.intakeData.problem = result.normalizedBangla;
+      this.intakeData.semanticMatched = true;
+      this.intakeData.semanticConfidence = result.confidence;
+      this.intakeData.semanticIntent = result.legalIntent;
+      this.intakeData.semanticNormalizedBangla = result.normalizedBangla;
+      this.intakeData.semanticQuestion = null;
+      this.pendingSemanticResult = null;
+      await this.advanceFromProblemStep();
+      return true;
+    }
+    if (rejected) {
+      this.intakeData.problem = "";
+      this.intakeData.semanticMatched = false;
+      this.intakeData.semanticConfidence = null;
+      this.intakeData.semanticIntent = null;
+      this.intakeData.semanticNormalizedBangla = null;
+      this.intakeData.semanticQuestion = null;
+      this.intakeData.semanticMatchedTerms = [];
+      this.intakeData.semanticLegalIntentBn = null;
+      this.pendingSemanticResult = null;
+      this.intakeStep = "problem";
+      this.emit({ type: "intake_step_changed", step: "problem", data: this.intakeData });
+      await this.speakAssistantPhrase("ঠিক আছে, আপনার সমস্যাটি আরেকবার সংক্ষেপে বলুন।");
+      return true;
+    }
+    await this.speakAssistantPhrase("আপনি কি আমার বুঝানো বাংলা অর্থটি ঠিক বলেছেন? হ্যাঁ অথবা না বলুন।");
+    return true;
+  }
+
   public async startCaseIntakeChain(
     initialProblem = "",
     classification?: SeverityClassification,
@@ -2038,10 +2346,18 @@ export class DirectSession implements VoiceSession {
     this.generalQueryMode = false;
     this.inactivityPhase = "off";
     this.severityConfirmation = null;
-    this.intakeStep = "problem";
-    this.intakeData = {
-       problem: initialProblem,
-       hasDisability: null,
+      this.intakeStep = "problem";
+      this.intakeData = {
+         problem: initialProblem,
+         indigenousLanguage: this.indigenousLanguage,
+         semanticMatched: false,
+         semanticConfidence: null,
+         semanticIntent: null,
+         semanticNormalizedBangla: null,
+         semanticQuestion: null,
+      semanticMatchedTerms: [],
+      semanticLegalIntentBn: null,
+         hasDisability: null,
        disabilityType: null,
        disabilityTypeCode: null,
        gender: null,
@@ -2066,9 +2382,14 @@ export class DirectSession implements VoiceSession {
       data: this.intakeData,
     });
 
-    const prompt = initialProblem
-      ? "আপনার সমস্যার প্রাথমিক বর্ণনা আমি নোট করেছি। নতুন কোনো তথ্য থাকলে বলুন, অথবা বলা শেষ হলে ডায়ালপ্যাডের ১ চাপুন।"
-      : "জি, আমি শুনছি। আপনার পুরো আইনি সমস্যাটি বিস্তারিত বলুন। বলা শেষ হলে ডায়ালপ্যাডের ১ চাপুন।";
+     const languagePrompt = this.indigenousLanguage === "marma"
+       ? "আপনি মারমা ভাষায় সমস্যার কথা বলতে পারেন। আমি শুধু মারমা শব্দের অর্থ বাংলায় বুঝে নেব।"
+       : this.indigenousLanguage === "chakma"
+         ? "আপনি চাকমা ভাষায় সমস্যার কথা বলতে পারেন। আমি শুধু চাকমা শব্দের অর্থ বাংলায় বুঝে নেব।"
+         : "";
+     const prompt = initialProblem
+       ? `আপনার সমস্যার প্রাথমিক বর্ণনা আমি নোট করেছি। ${languagePrompt} নতুন কোনো তথ্য থাকলে বলুন, অথবা বলা শেষ হলে ডায়ালপ্যাডের ১ চাপুন।`
+       : `জি, আমি শুনছি। ${languagePrompt} আপনার পুরো আইনি সমস্যাটি বিস্তারিত বলুন। বলা শেষ হলে ডায়ালপ্যাডের ১ চাপুন।`;
     await this.speakAssistantPhrase(prompt, initialProblem ? "problem_start_with_note" : "problem_start");
   }
 
@@ -2308,33 +2629,54 @@ export class DirectSession implements VoiceSession {
     district: string,
     category: string,
     pin?: string,
-  ): Promise<SessionUser> {
+  ): Promise<{ user: SessionUser; applicationId: string; applicationTime: string | null }> {
     const response = await fetch("/api/roles/complete", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
         voiceSessionId: this.sessionId,
         docketId,
-         displayName: this.intakeData.callerName || "নাগরিক",
-         phone: this.intakeData.phone,
-         problem: this.intakeData.problem,
-
+        displayName: this.intakeData.callerName || "নাগরিক",
+        phone: this.intakeData.phone,
+        problem: this.intakeData.problem,
         hasDisability: this.intakeData.hasDisability,
         disabilityType: this.intakeData.disabilityType,
-         disabilityTypeCode: this.intakeData.disabilityTypeCode,
-         pin,
-         gender: this.intakeData.gender,
-
-        district,
-        thana: this.intakeData.address,
+        disabilityTypeCode: this.intakeData.disabilityTypeCode,
+        pin,
+        gender: this.intakeData.gender,
+        address: this.intakeData.address,
+        indigenousLanguage: this.intakeData.indigenousLanguage,
+        semanticMatched: this.intakeData.semanticMatched,
+        semanticConfidence: this.intakeData.semanticConfidence,
+        semanticIntent: this.intakeData.semanticIntent,
+        semanticNormalizedBangla: this.intakeData.semanticNormalizedBangla,
+        semanticMatchedTerms: this.intakeData.semanticMatchedTerms,
+        legalIntentBn: this.intakeData.semanticLegalIntentBn,
+         originalTranscript: this.intakeData.semanticNormalizedBangla || this.intakeData.problem,
+         intakeSummary: this.intakeData.semanticNormalizedBangla || this.intakeData.problem,
+         urgency: this.intakeData.severityLevel === "emergency" ? "emergency_danger" : this.intakeData.severityLevel === "high" ? "urgent" : "normal",
+         priority: this.intakeData.severityLevel === "emergency" ? "urgent" : this.intakeData.severityLevel === "high" ? "high" : "normal",
+         severityLevel: this.intakeData.severityLevel,
+         severityCategory: this.intakeData.severityCategory,
+         severityFactors: this.intakeData.severityFactors,
+         district,
         category,
       }),
     });
-    const payload = (await response.json().catch(() => null)) as { user?: SessionUser; error?: string } | null;
-    if (!response.ok || !payload?.user) {
+    const payload = (await response.json().catch(() => null)) as {
+      user?: SessionUser;
+      applicationId?: string;
+      applicationTime?: string | null;
+      error?: string;
+    } | null;
+    if (!response.ok || !payload?.user || !payload.applicationId) {
       throw new Error(payload?.error || "Citizen session could not be created");
     }
-    return payload.user;
+    return {
+      user: payload.user,
+      applicationId: payload.applicationId,
+      applicationTime: payload.applicationTime || null,
+    };
   }
 
   private async finalizeCaseIntake(): Promise<void> {
@@ -2382,14 +2724,31 @@ export class DirectSession implements VoiceSession {
      });
 
      let citizenUser: SessionUser;
+     let applicationId: string;
+     let applicationTime: string | null;
      try {
-       citizenUser = await this.createCitizenSession(docketId, district, category, voicePin);
-     } catch (error) {
-       this.emit({
-         type: "error",
-         message: `আইনি অভিযোগ নথিভুক্ত হয়েছে, কিন্তু নাগরিক লগইন তৈরি হয়নি: ${error instanceof Error ? error.message : String(error)}`,
-       });
-       return;
+       const application = await this.createCitizenSession(docketId, district, category, voicePin);
+       citizenUser = application.user;
+       applicationId = application.applicationId;
+       applicationTime = application.applicationTime;
+     } catch {
+       try {
+         const retry = await this.createCitizenSession(docketId, district, category, voicePin);
+         citizenUser = retry.user;
+         applicationId = retry.applicationId;
+         applicationTime = retry.applicationTime;
+       } catch (retryError) {
+         this.emit({
+           type: "error",
+           message: `আবেদনটি সংরক্ষণ করা যায়নি: ${retryError instanceof Error ? retryError.message : String(retryError)}`,
+         });
+         this.intakeStep = "idle";
+         this.emit({ type: "intake_step_changed", step: "idle", data: this.intakeData });
+         await this.speakAssistantPhrase(
+           "দুঃখিত, আপনার আবেদনটি এই মুহূর্তে সংরক্ষণ করা যায়নি। দয়া করে কিছুক্ষণ পরে আবার ১৬৬৯৯ নম্বরে কল করুন। আপনার সমস্যার কোনো ক্ষতি হয়নি।",
+         );
+         return;
+       }
      }
 
      if (isBlind && voicePin) {
@@ -2412,9 +2771,8 @@ export class DirectSession implements VoiceSession {
      }
      const closingPrompt =
        "আপনার আইনি অভিযোগ ও তথ্যবলী সফলভাবে নথিভুক্ত করা হয়েছে। আপনার ডকেট নম্বরটি কথোপকথনের রেকর্ডে সংরক্ষিত আছে। আপনার যোগাযোগের ফোন নম্বরে ৪ সংখ্যার ভয়েস লগইন পিন পাঠানো হয়েছে। এই পিন দিয়ে ভবিষ্যতে লগইন করে কেসের তথ্য ও আপডেট দেখতে পারবেন। জাতীয় আইনগত সহায়তা প্রদান সংস্থা থেকে আমাদের প্যানেল আইনজীবী যোগাযোগ করবেন। আপনাকে ধন্যবাদ।";
-     await this.speakAssistantPhrase(closingPrompt, "sms_pin_sent");
-       "আপনার আইনি অভিযোগ ও তথ্যবলী সফলভাবে নথিভুক্ত করা হয়েছে। আপনার ডকেট নম্বরটি কথোপকথনের রেকর্ডে সংরক্ষিত আছে। জাতীয় আইনগত সহায়তা প্রদান সংস্থা থেকে আমাদের প্যানেল আইনজীবী দ্রুত আপনার সাথে যোগাযোগ করবেন। আপনাকে ধন্যবাদ। আপনার কলটি এখানেই শেষ করা হচ্ছে।";
-     await this.speakIntakeCompletion(closingPrompt);
+      await this.speakAssistantPhrase(closingPrompt, "sms_pin_sent");
+      await this.speakIntakeCompletion(closingPrompt);
 
      this.intakeStep = "idle";
      this.emit({
@@ -2422,12 +2780,23 @@ export class DirectSession implements VoiceSession {
        step: "idle",
        data: this.intakeData,
      });
-     this.emit({ type: "intake_complete", docketId, user: citizenUser });
+     this.emit({ type: "intake_complete", docketId, applicationId, applicationTime, user: citizenUser });
    }
 
 
   private async handleIntakeVoiceInput(clean: string): Promise<void> {
     if (!clean) return;
+
+    if (this.intakeStep === "language") {
+      this.emit({ type: "transcript", role: "user", text: clean });
+      await this.speakAssistantPhrase(LANGUAGE_SELECTION_RETRY_PROMPT);
+      return;
+    }
+
+    if (this.intakeStep === "application_confirm") {
+      await this.handleApplicationOfferInput(clean);
+      return;
+    }
 
     if (this.intakeStep === "problem") {
       if (clean.includes("বলা শেষ") || clean.includes("কথা শেষ") || clean.includes("সমাপ্ত")) {
@@ -2501,22 +2870,41 @@ export class DirectSession implements VoiceSession {
     if (!trimmed || !this.isCallActive) return;
     this.activityEpoch += 1;
     const activityEpoch = this.activityEpoch;
-    this.interruptAssistant();
-    this.exitDtmfWait();
+     this.interruptAssistant();
+     this.exitDtmfWait();
 
-    if (this.blindAccessState === "pin_ready") {
+     if (this.languageSelectionPending && (await this.handleLanguageSelectionInput(trimmed))) return;
+
+     if (this.blindAccessState === "pin_ready") {
       if (await this.handleBlindPinInput(trimmed)) return;
     }
+     if (this.isCallCutIntent(trimmed)) {
+       await this.cutCall("caller");
+       return;
+     }
      if (this.generalQueryMode && this.inactivityPhase === "hangup_warn") {
        if (await this.handleInactivityWarningInput(trimmed)) return;
        this.inactivityPhase = "off";
      }
+     if (this.severityConfirmation && (await this.handleApplicationOfferInput(trimmed))) return;
      if (this.generalQueryMode && (await this.handleVoiceInput(trimmed))) return;
      if (await this.handleSeverityInput(trimmed)) return;
 
 
-    // 1. If currently in Intake Chain:
-    if (this.intakeStep !== "idle" && this.intakeStep !== "complete") {
+     // 1. If currently in Intake Chain:
+     if (this.intakeStep !== "idle" && this.intakeStep !== "complete") {
+      if (this.intakeStep === "semantic_confirmation") {
+        this.emit({ type: "transcript", role: "user", text: trimmed });
+        await this.handleSemanticConfirmationInput(trimmed);
+        return;
+      }
+
+      if (this.intakeStep === "language") {
+        this.emit({ type: "transcript", role: "user", text: trimmed });
+        await this.speakAssistantPhrase(LANGUAGE_SELECTION_RETRY_PROMPT);
+        return;
+      }
+
       if (this.intakeStep === "problem") {
         if (
           trimmed === "১ (সাধারণ তথ্য ও নিয়মাবলী)" ||
@@ -2633,6 +3021,7 @@ export class DirectSession implements VoiceSession {
     const llmModel = this.lastConfig?.llmModel || "openai/gpt-oss-120b";
     try {
       await this.generateAndSpeakResponse(llmUrl, llmModel, 0, performance.now());
+      this.armOfferFromAssistantTurn(trimmed);
     } finally {
       if (this.isCallActive && this.activityEpoch === activityEpoch) {
         this.activeAbortCtrl = null;
@@ -2651,9 +3040,10 @@ export class DirectSession implements VoiceSession {
   public stop(): void {
     this.stopRecording();
     this.activityEpoch += 1;
-    this.isCallActive = false;
-    this.waitingForDtmf = false;
-    this.intakeStep = "idle";
+     this.isCallActive = false;
+     this.waitingForDtmf = false;
+     this.languageSelectionPending = false;
+     this.intakeStep = "idle";
     this.intakeData = {
        problem: "",
        hasDisability: null,
@@ -2672,8 +3062,16 @@ export class DirectSession implements VoiceSession {
       severityTags: [],
       severityFactors: [],
       severityCategory: null,
-      severityCaseReference: null,
-    };
+       severityCaseReference: null,
+       indigenousLanguage: this.indigenousLanguage,
+       semanticMatched: false,
+       semanticConfidence: null,
+       semanticIntent: null,
+       semanticNormalizedBangla: null,
+       semanticQuestion: null,
+      semanticMatchedTerms: [],
+      semanticLegalIntentBn: null,
+     };
     if (this.sttKeepAliveTimer) {
       clearInterval(this.sttKeepAliveTimer);
       this.sttKeepAliveTimer = null;

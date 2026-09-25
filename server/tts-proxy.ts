@@ -102,14 +102,12 @@ function chunkText(text: string, max = BUILD_ID_SIZE): string[] {
  */
 function sonioxUpstream(clientWs: WebSocket, cfg: TtsProxyConfig, reqUrl?: string): void {
   let voice = cfg.voice;
-  let language = cfg.language;
+  const language = "bn";
   try {
     if (reqUrl) {
       const parsed = new URL(reqUrl, "http://127.0.0.1");
       const m = parsed.searchParams.get("model");
       if (m) voice = m;
-      const l = parsed.searchParams.get("language");
-      if (l) language = l;
     }
   } catch {}
 

@@ -60,12 +60,11 @@ export class SonioxStt implements UnifiedStt {
   ) {
     this.proxyUrl = proxyUrl.replace(/\/+$/, "");
     this.cb = cb;
-    this.language = opts.language || "bn";
+    this.language = "bn";
     this.sampleRate = opts.sampleRate || 16000;
   }
 
   public configure(opts: { language?: string; sampleRate?: number }): void {
-    if (opts.language) this.language = opts.language;
     if (opts.sampleRate) this.sampleRate = opts.sampleRate;
   }
 

@@ -6,6 +6,7 @@ import { playDtmfTone } from "@/lib/audio/dtmf";
 import { ROLE_LABELS, type SessionUser } from "@/lib/auth/roles";
 import type { SessionPhase, IntakeStep, IntakeData, TranscriptEntry, LatencyMetrics } from "@/hooks/use-voice-session";
 import type { CaseDocket } from "@/lib/agent/memory/docket-store";
+import type { SdkConfig } from "@/lib/voice-sdk/types";
 
 const OFFICIAL_GREETING =
   "বাংলাদেশ সরকারের বিনামূল্যে আইনি সহায়তা হেল্পলাইনে আপনাকে স্বাগতম।\n" +
@@ -14,8 +15,73 @@ const OFFICIAL_GREETING =
 const OFFICIAL_SECONDARY =
   "সাধারণ তথ্য জানতে ১ চাপুন, কিন্তু কোনো সমস্যা বা অভিযোগ জানাতে ২ চাপুন।";
 
-const DIALPAD_KEYS = [
-  { key: "1", sub: "" },
+const ROOT_MENU_LABELS: Record<string, string> = {
+  "1": "১ (সাধারণ তথ্য ও নিয়মাবলী)",
+  "2": "২ (সমস্যা বা নতুন অভিযোগ)",
+  "3": "৩ (মামলার শুনানির তারিখ ও স্ট্যাটাস DLAS-2025-0992)",
+  "9": "৯ (জরুরি পুলিশ সহায়তা ও নারী নির্যাতন সেল)",
+};
+
+const YES_NO: Record<string, string> = { "1": "হ্যাঁ", "2": "না" };
+
+/**
+ * Per-step DTMF contract. The value shown on each key is also the exact text
+ * sent to the voice session, so a highlighted key can never mean one thing to
+ * the caller and another to the agent. Steps absent from this table accept
+ * free-form voice only, so no key is highlighted.
+ */
+const DTMF_BY_STEP: Partial<Record<IntakeStep, Record<string, string>>> = {
+  language: { "1": "১", "2": "২", "3": "৩" },
+  idle: { "1": "১", "2": "২", "3": "৩", "9": "৯" },
+  application_confirm: { "1": "১", "2": "২" },
+  semantic_confirmation: { "1": "১", "2": "২" },
+  problem: { "1": "১" },
+  disability: { "1": "১", "2": "২" },
+  gender: { "1": "১", "2": "২", "3": "৩" },
+  phone_primary: { "1": "১", "2": "২" },
+  phone_number: { "0": "0", "1": "1", "2": "2", "3": "3", "4": "4", "5": "5", "6": "6", "7": "7", "8": "8", "9": "9" },
+};
+
+const DTMF_BADGES: Partial<Record<IntakeStep, Record<string, string>>> = {
+  language: { "1": "বাংলা", "2": "মারমা", "3": "চাকমা" },
+  application_confirm: YES_NO,
+  semantic_confirmation: YES_NO,
+  problem: { "1": "বলা শেষ" },
+  disability: YES_NO,
+  gender: { "1": "পুরুষ", "2": "নারী", "3": "অন্যান্য" },
+  phone_primary: YES_NO,
+};
+
+const STEP_HINTS: Partial<Record<IntakeStep, string>> = {
+  language: "🎙️ প্রথমে ভাষা বেছে নিন — মুখে ভাষার নাম বলুন অথবা কীপ্যাডে ১/২/৩ চাপুন।",
+  application_confirm: "🎙️ আবেদন ও অভিযোগ নথিভুক্ত করবেন? মুখে <strong>হ্যাঁ/না</strong> বলুন অথবা কীপ্যাডে <strong>১ বা ২</strong> চাপুন।",
+  semantic_confirmation: "🎙️ আমার বুঝানো অর্থটি কি ঠিক? মুখে <strong>হ্যাঁ/না</strong> বলুন অথবা কীপ্যাডে <strong>১ বা ২</strong> চাপুন।",
+  problem: "🎙️ আপনার সমস্যা মুখে বলুন। কথা বলা শেষ হলে ডায়ালপ্যাডের <strong>১</strong> চাপুন।",
+  disability: "🎙️ শারীরিক বা বিশেষ প্রতিবন্ধকতা আছে কি? মুখে <strong>হ্যাঁ/না</strong> বলুন অথবা কীপ্যাডে <strong>১ বা ২</strong> চাপুন।",
+  disability_type: "🎙️ কোন ধরনের প্রতিবন্ধকতা আছে? যেমন <strong>দৃষ্টি, শ্রবণ, চলাফেরা, বাক, মানসিক</strong> বা অন্য কিছু বলুন।",
+  gender: "🎙️ আপনার লিঙ্গ কী? মুখে <strong>পুরুষ/নারী</strong> বলুন অথবা কীপ্যাডে <strong>১ বা ২</strong> চাপুন।",
+  name: "🎙️ আপনার পূর্ণ নামটি স্পষ্ট করে বলুন।",
+  phone_primary: "🎙️ এই ফোন নম্বরটি কি আপনার প্রাথমিক নম্বর? <strong>হ্যাঁ/না</strong> বলুন অথবা <strong>১ বা ২</strong> চাপুন।",
+  phone_number: "🎙️ ১১ সংখ্যার ফোন নম্বর দিন। এখন: <strong>{draft}</strong>",
+  address: "🎙️ আপনার জেলা এবং এলাকার ঠিকানাটি বলুন।",
+  complete: "✅ কেস সফলভাবে নথিভুক্ত হয়েছে! ডকেট কার্ডে তথ্য সংরক্ষিত।",
+};
+
+/** Steps that belong to the 8-box intake progress tracker. */
+const INTAKE_CHAIN_STEPS: IntakeStep[] = [
+  "problem",
+  "semantic_confirmation",
+  "disability",
+  "disability_type",
+  "gender",
+  "name",
+  "phone_primary",
+  "phone_number",
+  "address",
+  "complete",
+];
+
+const DIALPAD_KEYS = [  { key: "1", sub: "" },
   { key: "2", sub: "ABC" },
   { key: "3", sub: "DEF" },
   { key: "4", sub: "GHI" },
@@ -68,7 +134,7 @@ interface SoftphoneModalProps {
   transcript: TranscriptEntry[];
   metrics: LatencyMetrics | null;
   docket: CaseDocket | null;
-  start: () => Promise<void>;
+  start: (config?: Partial<SdkConfig>) => Promise<void>;
   sendMessage: (text: string) => Promise<void>;
   stop: () => void;
   isConnecting: boolean;
@@ -108,15 +174,17 @@ export function SoftphoneModal({
   // Call duration counter
   useEffect(() => {
     let timer: NodeJS.Timeout | null = null;
+    let resetTimer: NodeJS.Timeout | null = null;
     if (isCallActive) {
       timer = setInterval(() => {
         setCallDuration((prev) => prev + 1);
       }, 1000);
     } else {
-      setCallDuration(0);
+      resetTimer = setTimeout(() => setCallDuration(0), 0);
     }
     return () => {
       if (timer) clearInterval(timer);
+      if (resetTimer) clearTimeout(resetTimer);
     };
   }, [isCallActive]);
 
@@ -134,36 +202,10 @@ export function SoftphoneModal({
         setDialedNumber((prev) => prev + key);
       }
     } else {
-      // In-call Smart IVR DTMF selection
-      let dtmfText = key;
-      if (intakeStep === "problem") {
-        if (key === "1") dtmfText = "১";
-      } else if (intakeStep === "disability") {
-        if (key === "1") dtmfText = "১";
-        else if (key === "2") dtmfText = "২";
-       } else if (intakeStep === "gender") {
-         if (key === "1") dtmfText = "১";
-         else if (key === "2") dtmfText = "২";
-         else if (key === "3") dtmfText = "৩";
-       } else if (intakeStep === "phone_primary") {
-         if (key === "1") dtmfText = "১";
-         else if (key === "2") dtmfText = "২";
-       } else if (intakeStep === "phone_number") {
-         dtmfText = key;
-       } else {
-
-        dtmfText =
-          key === "1"
-            ? "১ (সাধারণ তথ্য ও নিয়মাবলী)"
-            : key === "2"
-              ? "২ (সমস্যা বা নতুন অভিযোগ)"
-              : key === "3"
-                ? "৩ (মামলার শুনানির তারিখ ও স্ট্যাটাস DLAS-2025-0992)"
-                : key === "9"
-                  ? "৯ (জরুরি পুলিশ সহায়তা ও নারী নির্যাতন সেল)"
-                  : key;
-      }
-      void sendMessage(dtmfText);
+      // In-call Smart IVR DTMF selection. One declarative table drives both the
+      // outgoing DTMF text and the green highlight, so every prompt stays in sync.
+      const stepMap = DTMF_BY_STEP[intakeStep] ?? DTMF_BY_STEP.idle ?? {};
+      void sendMessage(stepMap[key] ?? ROOT_MENU_LABELS[key] ?? key);
     }
   };
 
@@ -192,7 +234,7 @@ export function SoftphoneModal({
 
   return (
     <div
-      className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-5 bg-slate-950/70 backdrop-blur-md overflow-y-auto overscroll-contain animate-fade-in"
+      className="softphone-backdrop fixed inset-0 flex items-center justify-center p-3 sm:p-5 bg-slate-950/70 backdrop-blur-md overflow-y-auto overscroll-contain animate-fade-in"
       onClick={(e) => {
         // Prevent background click from suddenly dropping active calls
         if (e.target === e.currentTarget) {
@@ -311,7 +353,7 @@ export function SoftphoneModal({
                   ) : phase === "listening" ? (
                     <div className="flex items-center gap-2 text-emerald-300 text-xs font-semibold">
                       <span className="text-base animate-pulse">🎙️</span>
-                      <span>আপনার কথা শুনছি — মুখে বলুন</span>
+                       <span>ভাষা ও মেনু ভয়েসে বলুন বা ডায়ালপ্যাডে চাপুন</span>
                     </div>
                   ) : phase === "dtmf_wait" ? (
                     <div className="flex items-center gap-2 text-amber-300 text-xs font-semibold">
@@ -348,7 +390,7 @@ export function SoftphoneModal({
               </div>
             </div>
 
-            {/* Accessible Call Control Button for Illiterate Callers */}
+             {/* Accessible Call Control Button for Illiterate Callers */}
             {!isCallActive ? (
               <button
                 onClick={handleStartCall}
@@ -374,10 +416,20 @@ export function SoftphoneModal({
                 <div className="flex items-center justify-between mb-2">
                   <span className="text-xs font-bold text-emerald-900 flex items-center gap-1.5">
                     <span>📋</span>
-                    <span>আইনি অভিযোগ ও কেস নথিভুক্তি (Case Intake)</span>
+                    <span>
+                      {intakeStep === "language"
+                        ? "ভাষা নির্বাচন"
+                        : intakeStep === "application_confirm"
+                        ? "আবেদন নিশ্চিতকরণ"
+                        : "আইনি অভিযোগ ও কেস নথিভুক্তি (Case Intake)"}
+                    </span>
                   </span>
                   <span className="text-[11px] font-bold text-emerald-800 bg-emerald-200/80 px-2 py-0.5 rounded-full">
-                      {intakeStep === "problem"
+                      {intakeStep === "language"
+                        ? "ভাষা বেছে নিন"
+                        : intakeStep === "application_confirm"
+                        ? "আবেদন ও অভিযোগ নথিভুক্ত করবেন?"
+                        : intakeStep === "problem"
                         ? "ধাপ ১: সমস্যা বর্ণনা"
                         : intakeStep === "disability"
                         ? "ধাপ ২: প্রতিবন্ধী সুবিধা"
@@ -399,10 +451,11 @@ export function SoftphoneModal({
                   </span>
                 </div>
 
+                {INTAKE_CHAIN_STEPS.includes(intakeStep) && (
                 <div className="grid grid-cols-4 sm:grid-cols-8 gap-1 text-center text-[10px] font-semibold">
                   <div
                     className={`p-1.5 rounded-lg border ${
-                      intakeStep === "problem"
+                      intakeStep === "problem" || intakeStep === "semantic_confirmation"
                         ? "bg-emerald-700 text-white border-emerald-800"
                         : intakeData.problem
                         ? "bg-emerald-100 text-emerald-900 border-emerald-300"
@@ -493,37 +546,20 @@ export function SoftphoneModal({
                    </div>
 
                 </div>
+                )}
 
                 <div className="mt-2 text-[11px] text-emerald-950 bg-emerald-100/70 p-2 rounded-xl">
-                  {intakeStep === "problem" && (
-                    <span>🎙️ আপনার সমস্যা মুখে বলুন। কথা বলা শেষ হলে ডায়ালপ্যাডের <strong>১</strong> চাপুন।</span>
-                  )}
-                   {intakeStep === "disability" && (
-                     <span>🎙️ শারীরিক বা বিশেষ প্রতিবন্ধকতা আছে কি? মুখে <strong>হ্যাঁ/না</strong> বলুন অথবা কীপ্যাডে <strong>১ বা ২</strong> চাপুন।</span>
-                   )}
-                   {intakeStep === "disability_type" && (
-                     <span>🎙️ কোন ধরনের প্রতিবন্ধকতা আছে? যেমন <strong>দৃষ্টি, শ্রবণ, চলাফেরা, বাক, মানসিক</strong> বা অন্য কিছু বলুন।</span>
-                   )}
-                   {intakeStep === "gender" && (
-
-                    <span>🎙️ আপনার লিঙ্গ কী? মুখে <strong>পুরুষ/নারী</strong> বলুন অথবা কীপ্যাডে <strong>১ বা ২</strong> চাপুন।</span>
-                  )}
-                   {intakeStep === "name" && (
-                     <span>🎙️ আপনার পূর্ণ নামটি স্পষ্ট করে বলুন।</span>
-                   )}
-                   {intakeStep === "phone_primary" && (
-                     <span>🎙️ এই ফোন নম্বরটি কি আপনার প্রাথমিক নম্বর, যেখানে আমরা আপনাকে ফোন করতে পারি? <strong>হ্যাঁ/না</strong> বলুন।</span>
-                   )}
-                   {intakeStep === "phone_number" && (
-                     <span>🎙️ যোগাযোগের ১১ সংখ্যার ফোন নম্বর লিখুন। এখন: <strong>{intakeData.phoneDraft || "—"}</strong></span>
-                   )}
-                   {intakeStep === "address" && (
-
-                    <span>🎙️ আপনার জেলা এবং এলাকার ঠিকানাটি বলুন।</span>
-                  )}
-                  {intakeStep === "complete" && (
-                    <span className="font-bold text-emerald-800">✅ কেস সফলভাবে নথিভুক্ত হয়েছে! ডকেট কার্ডে তথ্য সংরক্ষিত।</span>
-                  )}
+                  {(() => {
+                    const hint = STEP_HINTS[intakeStep];
+                    if (!hint) return null;
+                    const text = hint.replace("{draft}", intakeData.phoneDraft || "—");
+                    return (
+                      <span
+                        className={intakeStep === "complete" ? "font-bold text-emerald-800" : undefined}
+                        dangerouslySetInnerHTML={{ __html: text }}
+                      />
+                    );
+                  })()}
                 </div>
               </div>
             )}
@@ -539,41 +575,9 @@ export function SoftphoneModal({
 
               <div className="grid grid-cols-3 gap-2.5">
                 {DIALPAD_KEYS.map(({ key, sub }) => {
-                  let stepBadge = "";
-                  let isHighlighted = false;
-
-                  if (intakeStep === "problem" && key === "1") {
-                    stepBadge = "বলা শেষ";
-                    isHighlighted = true;
-                  } else if (intakeStep === "disability") {
-                    if (key === "1") {
-                      stepBadge = "হ্যাঁ";
-                      isHighlighted = true;
-                    } else if (key === "2") {
-                      stepBadge = "না";
-                      isHighlighted = true;
-                    }
-                   } else if (intakeStep === "gender") {
-                     if (key === "1") {
-                       stepBadge = "পুরুষ";
-                       isHighlighted = true;
-                     } else if (key === "2") {
-                       stepBadge = "নারী";
-                       isHighlighted = true;
-                     } else if (key === "3") {
-                       stepBadge = "অন্যান্য";
-                       isHighlighted = true;
-                     }
-                   } else if (intakeStep === "phone_primary") {
-                     if (key === "1") {
-                       stepBadge = "হ্যাঁ";
-                       isHighlighted = true;
-                     } else if (key === "2") {
-                       stepBadge = "না";
-                       isHighlighted = true;
-                     }
-                   }
-
+                  const stepMap = DTMF_BY_STEP[intakeStep];
+                  const isHighlighted = !!stepMap && key !== "*" && key !== "#" && key in stepMap;
+                  const stepBadge = DTMF_BADGES[intakeStep]?.[key] ?? "";
 
                   return (
                     <button

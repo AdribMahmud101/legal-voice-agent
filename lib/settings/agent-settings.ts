@@ -3,6 +3,8 @@
  * Persistent across sessions via browser localStorage with reactive state syncing.
  */
 
+import { BANGLA_LEGAL_AGENT_PROMPT } from "../agent/prompts/bangla-legal-agent";
+
 export interface AgentSettings {
   systemPrompt: string;
   greeting: string;
@@ -21,7 +23,7 @@ export const MODELS = [
 ];
 
 export const VOICES = [
-  { id: "Priya", name: "Priya (Indian Female - Recommended for Bangla)" },
+  { id: "Priya", name: "Priya (multilingual female voice, Bengali supported)" },
   { id: "Dev", name: "Dev (Indian Male - Conversational)" },
   { id: "Aarav", name: "Aarav (Indian Male - Calm & Formal)" },
   { id: "Kavya", name: "Kavya (Indian Female - Soft & Warm)" },
@@ -32,8 +34,7 @@ export const VOICES = [
 ];
 
 export const DEFAULT_AGENT_SETTINGS: AgentSettings = {
-  systemPrompt:
-    "আপনি বাংলাদেশ সরকারের বিনামূল্যে আইনি সহায়তা হেল্পলাইন (১৬৬৯৯)-এর অত্যন্ত আন্তরিক, সহানুভূতিশীল ও অভিজ্ঞ ভার্চুয়াল আইনি পরামর্শক। সাধারণ মানুষের সাথে কথ্য ও মিষ্টি বাংলায় মাত্র ১-২ বাক্যে সহায়ক উত্তর দিন।",
+  systemPrompt: BANGLA_LEGAL_AGENT_PROMPT,
   greeting:
     "বাংলাদেশ সরকারের বিনামূল্যে আইনি সহায়তা হেল্পলাইনে আপনাকে স্বাগতম।\n" +
     "আপনাকে সঠিক সেবা প্রদান এবং ভবিষ্যতের প্রয়োজনে আমাদের এই কথোপকথনটি রেকর্ড করা হচ্ছে।",

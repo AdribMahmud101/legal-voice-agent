@@ -1,9 +1,20 @@
 import { NextResponse } from "next/server";
 import { getCloudflareContext } from "@opennextjs/cloudflare";
+import { getD1SessionUser, type D1Database } from "@/lib/auth/d1-session";
 import { getLocalSessionUser } from "@/lib/auth/local-session";
+import type { SessionUser } from "@/lib/auth/roles";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
+
+interface BucketObject {
+  body: ReadableStream | null;
+}
+
+interface BucketBinding {
+  put(key: string, value: ReadableStream, options?: { httpMetadata?: { contentType: string } }): Promise<unknown>;
+  get(key: string): Promise<BucketObject | null>;
+}
 
 function getToken(request: Request): string | undefined {
   return request.headers
@@ -14,9 +25,11 @@ function getToken(request: Request): string | undefined {
     ?.slice("auth_session=".length);
 }
 
-function getBindings(): { db: any; bucket: any } | null {
+function getBindings(): { db: D1Database; bucket: BucketBinding } | null {
   try {
-    const context = getCloudflareContext() as { env?: { DB?: any; CALL_RECORDINGS_R2?: any } };
+    const context = getCloudflareContext() as unknown as {
+      env?: { DB?: D1Database; CALL_RECORDINGS_R2?: BucketBinding };
+    };
     if (!context.env?.DB || !context.env.CALL_RECORDINGS_R2) return null;
     return { db: context.env.DB, bucket: context.env.CALL_RECORDINGS_R2 };
   } catch {
@@ -24,12 +37,17 @@ function getBindings(): { db: any; bucket: any } | null {
   }
 }
 
+async function getRequestUser(request: Request, db: D1Database | null): Promise<SessionUser | null> {
+  const token = getToken(request);
+  return (await getD1SessionUser(db, token)) || getLocalSessionUser(token);
+}
+
 export async function POST(request: Request) {
-  const user = getLocalSessionUser(getToken(request));
+  const bindings = getBindings();
+  const user = await getRequestUser(request, bindings?.db || null);
   if (!user || user.role !== "citizen") {
     return NextResponse.json({ ok: false, error: "Authenticated citizen session required" }, { status: 401 });
   }
-  const bindings = getBindings();
   if (!bindings) {
     return NextResponse.json({ ok: false, error: "Recording storage is not configured" }, { status: 503 });
   }
@@ -72,11 +90,11 @@ export async function POST(request: Request) {
 }
 
 export async function GET(request: Request) {
-  const user = getLocalSessionUser(getToken(request));
+  const bindings = getBindings();
+  const user = await getRequestUser(request, bindings?.db || null);
   if (!user || user.role === "citizen") {
     return NextResponse.json({ ok: false, error: "Staff session required" }, { status: 401 });
   }
-  const bindings = getBindings();
   if (!bindings) {
     return NextResponse.json({ ok: false, error: "Recording storage is not configured" }, { status: 503 });
   }
@@ -86,13 +104,13 @@ export async function GET(request: Request) {
     const recordingId = url.searchParams.get("recordingId");
     if (recordingId) {
       const row = await bindings.db
-        .prepare("SELECT object_key, content_type, duration_ms, created_at FROM call_recordings WHERE id = ? LIMIT 1")
+        .prepare("SELECT object_key, content_type FROM call_recordings WHERE id = ? LIMIT 1")
         .bind(recordingId)
-        .first();
+        .first<{ object_key: string; content_type: string }>();
       if (!row) return NextResponse.json({ ok: false, error: "Recording not found" }, { status: 404 });
       const object = await bindings.bucket.get(row.object_key);
       if (!object?.body) return NextResponse.json({ ok: false, error: "Recording object not found" }, { status: 404 });
-      return new Response(object.body as ReadableStream, {
+      return new Response(object.body, {
         headers: {
           "Content-Type": row.content_type,
           "Cache-Control": "private, no-store",
@@ -109,7 +127,14 @@ export async function GET(request: Request) {
          FROM call_recordings WHERE docket_id = ? ORDER BY created_at DESC LIMIT 1`,
       )
       .bind(docketId)
-      .first();
+      .first<{
+        id: string;
+        voice_session_id: string;
+        docket_id: string;
+        content_type: string;
+        duration_ms: number;
+        created_at: string;
+      }>();
     return NextResponse.json({
       ok: true,
       recording: row

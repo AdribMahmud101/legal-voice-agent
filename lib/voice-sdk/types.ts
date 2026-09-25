@@ -11,6 +11,7 @@
 
 import type { SessionUser } from "../auth/roles";
 import type { SeverityLevel } from "../agent/knowledge/severity-classification";
+import type { IndigenousLanguage } from "../agent/knowledge/indigenous-language-lexicon";
 
 export type SessionMode = "direct";
 
@@ -20,8 +21,10 @@ export interface SdkConfig {
   sttProvider?: "soniox";
   /** Optional override of the Soniox model id. */
   sttModel?: string;
-  /** Optional override of the STT listen language code (default: bn). */
+  /** Optional provider language code. Soniox is enforced as bn. */
   language?: string;
+  /** Optional user-selected indigenous intake language. Soniox remains bn. */
+  indigenousLanguage?: IndigenousLanguage;
   /** OpenAI-compatible chat completions base URL. Cloud-only port always
    *  routes through the local SSE proxy; this is retained for testing. */
   llmBaseUrl?: string;
@@ -67,9 +70,9 @@ export type SdkEvent =
     }
   | {
       type: "intake_step_changed";
-      step: "idle" | "problem" | "disability" | "disability_type" | "gender" | "name" | "phone_primary" | "phone_number" | "address" | "complete";
-      data: {
-        problem?: string;
+       step: "idle" | "language" | "application_confirm" | "problem" | "semantic_confirmation" | "disability" | "disability_type" | "gender" | "name" | "phone_primary" | "phone_number" | "address" | "complete";
+       data: {
+         problem?: string;
         hasDisability?: boolean | null;
         disabilityType?: string | null;
         disabilityTypeCode?: string | null;
@@ -85,11 +88,26 @@ export type SdkEvent =
          severityTags?: string[];
          severityFactors?: string[];
          severityCategory?: string | null;
-         severityCaseReference?: string | null;
+          severityCaseReference?: string | null;
+
+          indigenousLanguage?: "bn" | "marma" | "chakma";
+          semanticMatched?: boolean;
+          semanticConfidence?: number | null;
+          semanticIntent?: string | null;
+          semanticNormalizedBangla?: string | null;
+          semanticQuestion?: string | null;
+          semanticMatchedTerms?: string[];
+          semanticLegalIntentBn?: string | null;
 
       };
     }
-  | { type: "intake_complete"; docketId: string; user: SessionUser }
+  | {
+      type: "intake_complete";
+      docketId: string;
+      applicationId?: string;
+      applicationTime?: string | null;
+      user: SessionUser;
+    }
   | { type: "voice_authenticated"; user: SessionUser }
   | { type: "error"; message: string }
   | { type: "system"; text: string };

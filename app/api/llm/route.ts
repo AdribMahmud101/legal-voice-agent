@@ -19,12 +19,14 @@ export async function POST(req: Request) {
      const sessionId = (body.sessionId as string) || "session-default";
      const messages = (body.messages as ModelMessage[]) || [];
      const authenticatedUser = (body.authenticatedUser as SessionUser | null) || null;
+     const indigenousLanguage = body.indigenousLanguage === "marma" || body.indigenousLanguage === "chakma" ? body.indigenousLanguage : "bn";
 
      const agentStream = await runLegalAgentSession({
        sessionId,
        messages,
-       authenticatedUser,
-     });
+         authenticatedUser,
+         indigenousLanguage,
+       });
 
 
     const encoder = new TextEncoder();

@@ -31,7 +31,7 @@ export async function register() {
       voice: provider === "soniox"
         ? (process.env.TTS_VOICE_ID ?? "Priya")
         : (process.env.TTS_VOICE_ID ?? "aura-2-thalia-en"),
-      language: process.env.TTS_LANGUAGE ?? (provider === "soniox" ? "bn" : "en"),
+      language: provider === "soniox" ? "bn" : (process.env.TTS_LANGUAGE ?? "en"),
       model: "tts-rt-v2",
     });
   } catch (err) {

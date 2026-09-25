@@ -116,10 +116,36 @@ async function main() {
     {
       name: "intake_complete.wav",
       text: "আপনার আইনি অভিযোগ ও তথ্যাবলী সফলভাবে নথিভুক্ত করা হয়েছে। আপনার ডকেট নম্বরটি কথোপকথনের রেকর্ডে সংরক্ষিত আছে। জাতীয় আইনগত সহায়তা প্রদান সংস্থা থেকে আমাদের প্যানেল আইনজীবী দ্রুত আপনার সাথে যোগাযোগ করবেন। আপনাকে ধন্যবাদ। আপনার কলটি এখানেই শেষ করা হচ্ছে।"
+    },
+    {
+      name: "language_select.wav",
+      text: "প্রথমে আপনার ভাষা নির্বাচন করুন: বাংলার জন্য ১, মারমার জন্য ২, চাকমার জন্য ৩ চাপুন, অথবা মুখে ভাষার নাম বলুন। এরপর সাধারণ তথ্যের জন্য ১ এবং সমস্যা বা অভিযোগের জন্য ২ চাপুন।"
+    },
+    {
+      name: "language_confirmed_bn.wav",
+      text: "বাংলা ভাষা নির্বাচিত হয়েছে। এখন সাধারণ তথ্যের জন্য ১ এবং সমস্যা বা অভিযোগের জন্য ২ চাপুন।"
+    },
+    {
+      name: "language_confirmed_marma.wav",
+      text: "মারমা ভাষা নির্বাচিত হয়েছে। এখন সাধারণ তথ্যের জন্য ১ এবং সমস্যা বা অভিযোগের জন্য ২ চাপুন।"
+    },
+    {
+      name: "language_confirmed_chakma.wav",
+      text: "চাকমা ভাষা নির্বাচিত হয়েছে। এখন সাধারণ তথ্যের জন্য ১ এবং সমস্যা বা অভিযোগের জন্য ২ চাপুন।"
     }
   ];
 
-  for (const item of prompts) {
+  // Optional filter: `node scripts/generate_audio_prompts.mjs language` regenerates only matching prompts.
+  const filter = process.argv[2];
+  const selected = filter
+    ? prompts.filter((item) => item.name.includes(filter))
+    : prompts;
+  if (selected.length === 0) {
+    console.error(`No prompts matched filter "${filter}"`);
+    process.exit(1);
+  }
+
+  for (const item of selected) {
     const targetFile = path.join(audioDir, item.name);
     await synthesizeToFile(item.text, targetFile);
     await new Promise(r => setTimeout(r, 600));

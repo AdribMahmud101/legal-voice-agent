@@ -5,6 +5,7 @@ import { VoiceAgent } from "@/lib/voice-sdk/client";
 import type { SessionUser } from "@/lib/auth/roles";
 import type { SdkConfig, SdkEvent } from "@/lib/voice-sdk/types";
 import type { SeverityLevel } from "@/lib/agent/knowledge/severity-classification";
+import type { IndigenousLanguage } from "@/lib/agent/knowledge/indigenous-language-lexicon";
 import { generateRandomBangladeshPhone } from "@/lib/phone/bangladesh-phone";
 
 export type SessionPhase =
@@ -38,8 +39,11 @@ export interface LogEntry {
 
 export type IntakeStep =
   | "idle"
-  | "problem"
-  | "disability"
+   | "problem"
+   | "language"
+   | "application_confirm"
+   | "semantic_confirmation"
+   | "disability"
   | "disability_type"
   | "gender"
   | "name"
@@ -60,7 +64,16 @@ export interface IntakeData {
     phonePrimary?: boolean | null;
     phoneOperator?: string | null;
     phoneDraft?: string;
-    address?: string | null;
+     address?: string | null;
+
+     indigenousLanguage?: IndigenousLanguage;
+     semanticMatched?: boolean;
+     semanticConfidence?: number | null;
+     semanticIntent?: string | null;
+     semanticNormalizedBangla?: string | null;
+     semanticQuestion?: string | null;
+     semanticMatchedTerms?: string[];
+     semanticLegalIntentBn?: string | null;
 
    severityLevel?: SeverityLevel | null;
    severityTags?: string[];
@@ -252,7 +265,7 @@ export function useVoiceSession(onSdkEvent?: (evt: SdkEvent) => void): UseVoiceS
       const agent = new VoiceAgent(handleEvent);
       agentRef.current = agent;
       if (typeof window !== "undefined") {
-        (window as any).__voiceAgent = agent;
+         (window as Window & { __voiceAgent?: VoiceAgent }).__voiceAgent = agent;
       }
       try {
         const callerPhone = config?.callerPhone ?? generateRandomBangladeshPhone();

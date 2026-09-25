@@ -34,16 +34,16 @@ export async function GET(req: Request) {
 
   return NextResponse.json({
     sttProvider: "soniox",
-    sttModel: process.env.STT_MODEL ?? "stt-rt-v3",
+    sttModel: process.env.STT_MODEL ?? "stt-rt-v5",
     llmModel: process.env.LLM_MODEL ?? "openai/gpt-oss-120b",
     llmProxyUrl: process.env.LLM_PROXY_URL ?? "/api/llm",
     ttsProvider: provider,
     ttsVoiceId: process.env.TTS_VOICE_ID ?? (provider === "soniox" ? "Priya" : "aura-2-thalia-en"),
-    ttsLanguage: process.env.TTS_LANGUAGE ?? (provider === "soniox" ? "bn" : "en"),
+    ttsLanguage: provider === "soniox" ? "bn" : "en",
     ttsProxyUrl,
     ttsProxyLive,
     ttsProxyError: proxy.error ?? null,
-    language: process.env.STT_LANGUAGE ?? "bn",
+    language: "bn",
   });
 
 }

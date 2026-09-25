@@ -10,6 +10,7 @@
 
 import { createOpenAI } from "@ai-sdk/openai";
 import type { SessionUser } from "../../auth/roles";
+import type { IndigenousLanguage } from "../knowledge/indigenous-language-lexicon";
 import { streamText, isStepCount, type ModelMessage } from "ai";
 import { createLegalAidTools } from "../tools/legal-tools";
 import { docketStore } from "../memory/docket-store";
@@ -57,10 +58,12 @@ export async function runLegalAgentSession({
   sessionId,
   messages,
   authenticatedUser = null,
+  indigenousLanguage = "bn",
 }: {
   sessionId: string;
   messages: ModelMessage[];
   authenticatedUser?: SessionUser | null;
+  indigenousLanguage?: IndigenousLanguage;
 }) {
   const modelName = process.env.LLM_MODEL || "openai/gpt-oss-120b";
   const tools = createLegalAidTools(sessionId);
@@ -103,6 +106,12 @@ ${matchedInquiries
     : "";
 
   // Augment system prompt with current working docket context and runtime injected universal inquiries
+  const languageContext = indigenousLanguage === "marma"
+    ? "কলার মারমা ভাষা বেছে নিয়েছেন। কেবল মারমা শব্দের অর্থ নির্ভরতার উপর ভিত্তি করে বাংলা আইনি অর্থ বুঝুন; চাকমা বা অন্য ভাষার অর্থ মেলাবেন না।"
+    : indigenousLanguage === "chakma"
+      ? "কলার চাকমা ভাষা বেছে নিয়েছেন। কেবল চাকমা শব্দের অর্থ নির্ভরতার উপর ভিত্তি করে বাংলা আইনি অর্থ বুঝুন; মারমা বা অন্য ভাষার অর্থ মেলাবেন না।"
+      : "কলার বাংলা ভাষা বেছে নিয়েছেন।";
+
   const dynamicContext = `
 [বর্তমান ডকেট মেমোরি / Current Docket State]:
 - কলারের নাম: ${currentDocket.callerName ?? "অজানা"}
@@ -115,7 +124,7 @@ ${matchedInquiries
 
   return streamText({
     model: groqClient.chat(modelName),
-    system: `${LEGAL_AGENT_SYSTEM_PROMPT}\n${universalGeneralKnowledge}\n${getSeverityClassificationKnowledgeBlock()}${authenticatedContext}\n${dynamicContext}\n${runtimeInquiryBlock}`,
+     system: `${LEGAL_AGENT_SYSTEM_PROMPT}\n${languageContext}\n${universalGeneralKnowledge}\n${getSeverityClassificationKnowledgeBlock()}${authenticatedContext}\n${dynamicContext}\n${runtimeInquiryBlock}`,
     messages,
     tools,
     stopWhen: isStepCount(4),
