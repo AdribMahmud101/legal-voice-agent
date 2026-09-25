@@ -81,9 +81,15 @@ export function IdCapture({
   }, [refreshCameras]);
 
   /**
-   * Opens a camera. Passing a deviceId pins the stream to that exact camera;
-   * `facingMode` alone is only a hint, so the browser is free to hand back the
-   * same camera and silently ignore a requested flip.
+   * Opens a camera, replacing whatever is streaming now.
+   *
+   * The previous stream MUST be stopped first: most browsers refuse to open a
+   * second capture device while another is live and surface it as
+   * NotReadableError ("Could not start video source").
+   *
+   * Constraints are tried in order of strictness. `facingMode: { ideal }` is
+   * only a hint, so the browser may silently hand back the same camera;
+   * `exact` makes it commit or fail, and a pinned deviceId is strictest of all.
    */
   const start = useCallback(
     async (target?: { deviceId?: string; facing?: FacingMode }) => {
@@ -98,25 +104,35 @@ export function IdCapture({
         return;
       }
 
-      const wanted = target?.deviceId
-        ? { deviceId: { exact: target.deviceId } }
-        : { facingMode: { ideal: target?.facing ?? "environment" } };
-      const constraints = {
-        video: { ...wanted, width: { ideal: 1920 }, height: { ideal: 1080 } },
-        audio: false,
-      };
+      const wantedFacing = target?.facing;
+      const attempts: MediaTrackConstraints[] = [];
+      if (target?.deviceId) attempts.push({ deviceId: { exact: target.deviceId } });
+      if (wantedFacing) attempts.push({ facingMode: { exact: wantedFacing } });
+      attempts.push({ facingMode: { ideal: wantedFacing ?? "environment" } });
+      attempts.push({});
 
       setState("requesting");
+      // Release the camera before asking for a different one.
+      stopStream();
+      if (videoRef.current) videoRef.current.srcObject = null;
+      // Some browsers need a beat to hand the device back.
+      await new Promise((resolve) => setTimeout(resolve, 120));
+
       try {
-        let stream: MediaStream;
-        try {
-          stream = await navigator.mediaDevices.getUserMedia(constraints);
-        } catch (error) {
-          // A pinned device can disappear between enumeration and open (or the
-          // browser may refuse `exact`). Retry without it before giving up.
-          if (!target?.deviceId) throw error;
-          stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: false });
+        let stream: MediaStream | null = null;
+        let lastError: unknown = null;
+        for (const video of attempts) {
+          try {
+            stream = await navigator.mediaDevices.getUserMedia({
+              video: { ...video, width: { ideal: 1920 }, height: { ideal: 1080 } },
+              audio: false,
+            });
+            break;
+          } catch (error) {
+            lastError = error;
+          }
         }
+        if (!stream) throw lastError;
 
         streamRef.current = stream;
         if (videoRef.current) {
@@ -132,9 +148,9 @@ export function IdCapture({
         // Report what actually opened, not what we asked for. Some platforms
         // give opaque labels, so fall back to the intent we passed in.
         setFacing((prev) => {
-          if (!openedId) return target?.facing ?? prev;
+          if (!openedId) return wantedFacing ?? prev;
           const label = cameras.find((device) => device.deviceId === openedId)?.label ?? "";
-          return facingFromLabel(label) ?? target?.facing ?? prev;
+          return facingFromLabel(label) ?? wantedFacing ?? prev;
         });
       } catch (error) {
         const name = error instanceof DOMException ? error.name : "";
@@ -142,6 +158,12 @@ export function IdCapture({
           setState("denied");
           setMessage(
             "ক্যামেরার অনুমতি পাওয়া যায়নি। ব্রাউজারের ঠিকানা বারে ক্যামেরা আইকনে অনুমতি দিন, অথবা নিচে ছবি আপলোড করুন।",
+          );
+        } else if (name === "NotReadableError" || name === "AbortError") {
+          // The camera is held by another app or another stream.
+          setState("error");
+          setMessage(
+            "ক্যামেরাটি এখন ব্যবহারে আছে। অন্য অ্যাপ বন্ধ করে বা কয়েক সেকেন্ড পর আবার চেষ্টা করুন।",
           );
         } else if (name === "NotFoundError" || name === "OverconstrainedError") {
           setState("unsupported");
@@ -152,7 +174,7 @@ export function IdCapture({
         }
       }
     },
-    [cameras, refreshCameras],
+    [cameras, refreshCameras, stopStream],
   );
 
   const capture = useCallback(() => {
@@ -177,14 +199,17 @@ export function IdCapture({
     void start(activeDeviceId ? { deviceId: activeDeviceId } : { facing });
   }, [activeDeviceId, facing, onCapture, start]);
 
-  /** Moves to the next physical camera, so the flip is guaranteed to change. */
+  /**
+   * Moves to the other camera. Prefers a concrete device, but falls back to a
+   * facingMode flip because iOS reports a single video input even though the
+   * front camera is reachable through facingMode alone.
+   */
   const switchCamera = useCallback(() => {
-    const next = cameras.find((device) => device.deviceId !== activeDeviceId);
-    if (!next) return;
     const nextFacing: FacingMode = facing === "environment" ? "user" : "environment";
+    const next = cameras.find((device) => device.deviceId !== activeDeviceId);
     setShot(null);
     onCapture("");
-    void start({ deviceId: next.deviceId, facing: nextFacing });
+    void start(next ? { deviceId: next.deviceId, facing: nextFacing } : { facing: nextFacing });
   }, [activeDeviceId, cameras, facing, onCapture, start]);
 
   const handleFile = useCallback(
@@ -211,7 +236,6 @@ export function IdCapture({
     ? "মুখটি বৃত্তের ভেতরে রাখুন, সোজা ক্যামেরার দিকে তাকিয়ে থাকুন এবং আলো সমতল রাখুন।"
     : hint;
   const cameraLabel = facing === "environment" ? "পিছনের ক্যামেরা" : "সামনের ক্যামেরা";
-  const canSwitch = cameras.length > 1;
 
   return (
     <div className={cn("flex flex-col gap-3", className)}>
@@ -292,8 +316,9 @@ export function IdCapture({
           </Button>
         ) : null}
 
-        {/* Only offered when the device really exposes more than one camera. */}
-        {state === "ready" && !shot && canSwitch ? (
+        {/* Always offered: a single enumerated camera does not mean a single
+            physical lens, since iOS only ever reports the front one. */}
+        {state === "ready" && !shot ? (
           <Button
             type="button"
             onClick={switchCamera}

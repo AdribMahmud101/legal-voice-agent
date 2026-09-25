@@ -3,17 +3,21 @@ import { chromium } from 'playwright-core';
 const site = process.env.SITE_URL || 'https://legal-voice-agent.adribmahmud.workers.dev/';
 
 /**
- * Chromium's fake capture device exposes exactly ONE videoinput, so a dual-camera
- * phone cannot be reproduced without standing in for the browser API. This shim
- * reports a second "front" camera and honours a request for it, which is what
- * lets us prove the switch really lands on a different device.
+ * Stands in for a phone camera at the browser API boundary.
+ *
+ * Chromium's fake capture device reports exactly ONE videoinput, so a dual-camera
+ * phone cannot be reproduced without help. It also happily opens a second stream
+ * while the first is live, which real devices refuse with NotReadableError
+ * ("Could not start video source"). Both behaviours are modelled here so the
+ * switch has to release the camera before re-opening it.
  */
-async function simulateDualCamera(context) {
-  await context.addInitScript(() => {
+async function simulatePhoneCamera(context, { cameras: cameraCount = 2 } = {}) {
+  await context.addInitScript((count) => {
     const md = navigator.mediaDevices;
     const realEnum = md.enumerateDevices.bind(md);
     const realGum = md.getUserMedia.bind(md);
     const ALT_SUFFIX = '-sim-front';
+    const live = new Set();
 
     const override = (name, value) =>
       Object.defineProperty(md, name, { value, configurable: true, writable: true });
@@ -21,44 +25,46 @@ async function simulateDualCamera(context) {
     override('enumerateDevices', async () => {
       const all = await realEnum();
       const cams = all.filter((d) => d.kind === 'videoinput');
-      if (!cams.length) return all;
+      const rest = all.filter((d) => d.kind !== 'videoinput');
+      if (!cams.length || count < 2) return count < 2 ? [...rest, ...cams.slice(0, 1)] : all;
       const primary = cams[0];
+      const back = { kind: 'videoinput', deviceId: primary.deviceId, label: primary.label, groupId: primary.groupId };
       const front = {
         kind: 'videoinput',
         deviceId: primary.deviceId + ALT_SUFFIX,
         label: 'Front Camera (simulated)',
         groupId: primary.groupId,
       };
-      const back = { kind: 'videoinput', deviceId: primary.deviceId, label: primary.label, groupId: primary.groupId };
-      return [...all.filter((d) => d.kind !== 'videoinput'), back, front];
+      return [...rest, back, front];
     });
 
     override('getUserMedia', async (constraints) => {
+      // A real device hands out one capture session at a time.
+      for (const stream of live) {
+        const track = stream.getVideoTracks()[0];
+        if (track && track.readyState === 'live') {
+          throw new DOMException('Could not start video source', 'NotReadableError');
+        }
+      }
+
       const wanted = constraints?.video?.deviceId?.exact ?? constraints?.video?.deviceId;
-      if (!wanted || !String(wanted).endsWith(ALT_SUFFIX)) return realGum(constraints);
-      const stream = await realGum({ video: true, audio: false });
-      const track = stream.getVideoTracks()[0];
-      const real = track.getSettings.bind(track);
-      track.getSettings = () => ({ ...real(), deviceId: String(wanted) });
+      let stream;
+      if (wanted && String(wanted).endsWith(ALT_SUFFIX)) {
+        stream = await realGum({ video: true, audio: false });
+        const track = stream.getVideoTracks()[0];
+        const real = track.getSettings.bind(track);
+        track.getSettings = () => ({ ...real(), deviceId: String(wanted) });
+      } else {
+        stream = await realGum(constraints);
+      }
+
+      live.add(stream);
+      for (const track of stream.getVideoTracks()) {
+        track.addEventListener('ended', () => live.delete(stream));
+      }
       return stream;
     });
-  });
-}
-
-/** Reports a single camera, like a phone with one lens. */
-async function simulateSingleCamera(context) {
-  await context.addInitScript(() => {
-    const md = navigator.mediaDevices;
-    const realEnum = md.enumerateDevices.bind(md);
-    Object.defineProperty(md, 'enumerateDevices', {
-      value: async () => {
-        const all = await realEnum();
-        return [...all.filter((d) => d.kind !== 'videoinput'), ...all.filter((d) => d.kind === 'videoinput').slice(0, 1)];
-      },
-      configurable: true,
-      writable: true,
-    });
-  });
+  }, cameraCount);
 }
 
 async function seedSession(page) {
@@ -121,7 +127,7 @@ async function main() {
 
   // ---------- dual-camera device: the switch must change the device ----------
   const dualCtx = await browser.newContext(opts);
-  await simulateDualCamera(dualCtx);
+  await simulatePhoneCamera(dualCtx, { cameras: 2 });
   const page = await dualCtx.newPage();
   await page.goto(site, { waitUntil: 'networkidle' });
   await seedSession(page);
@@ -158,12 +164,19 @@ async function main() {
   check('switch button present on dual-camera device', (await switchBtn.count()) === 1, `count=${await switchBtn.count()}`);
   check('switch button announces active camera', /পিছনের ক্যামেরা/.test((await switchBtn.getAttribute('aria-label')) || ''), await switchBtn.getAttribute('aria-label'));
 
-  // The regression that matters: the browser must report a DIFFERENT device.
+  // The regression that matters: the browser must report a DIFFERENT device,
+  // and the old capture must be released first or the device stays busy.
   await switchBtn.click();
   await page.waitForTimeout(2500);
   const after = await activeStream(page);
   check('switching restarts the stream', after.playing && after.w > 0, JSON.stringify(after));
   check('switch actually changes the camera device', !!after.deviceId && after.deviceId !== before.deviceId, `before=${before.deviceId} after=${after.deviceId}`);
+  const bodyText = await page.locator('body').innerText();
+  check(
+    'switch is not blocked by a busy camera',
+    !/ক্যামেরা চালু করা যায়নি|ক্যামেরাটি এখন ব্যবহারে আছে/.test(bodyText),
+    bodyText.match(/.{0,40}ক্যামেরা.{0,40}/)?.[0] || '',
+  );
   check('switch button label updates', /সামনের ক্যামেরা/.test((await switchBtn.getAttribute('aria-label')) || ''), await switchBtn.getAttribute('aria-label'));
   await page.screenshot({ path: '/tmp/opencode/face-circle.png' });
 
@@ -192,9 +205,11 @@ async function main() {
   await page.screenshot({ path: '/tmp/opencode/doc-rect.png' });
   await dualCtx.close();
 
-  // ---------- single-camera device must not offer a switch ----------
+  // ---------- single-camera device: offered, but must degrade gracefully ----------
+  // iOS reports one video input and still switches via facingMode, so the button
+  // stays; what matters is that pressing it never leaves the citizen stuck.
   const singleCtx = await browser.newContext(opts);
-  await simulateSingleCamera(singleCtx);
+  await simulatePhoneCamera(singleCtx, { cameras: 1 });
   const singlePage = await singleCtx.newPage();
   await singlePage.goto(site, { waitUntil: 'networkidle' });
   await seedSession(singlePage);
@@ -203,9 +218,13 @@ async function main() {
   await singlePage.getByRole('button', { name: /ক্যামেরা চালু করুন/ }).click();
   await singlePage.waitForTimeout(2500);
   const singleSwitch = singlePage.getByRole('button', { name: /ক্যামেরা পরিবর্তন করুন/ });
-  check('switch button hidden on single-camera device', (await singleSwitch.count()) === 0, `count=${await singleSwitch.count()}`);
+  check('switch button still offered when one camera is reported', (await singleSwitch.count()) === 1, `count=${await singleSwitch.count()}`);
+  await singleSwitch.click();
+  await singlePage.waitForTimeout(2500);
   const singleLive = await activeStream(singlePage);
-  check('single-camera device still captures', singleLive.playing, JSON.stringify(singleLive));
+  check('single-camera device keeps a working stream after switching', singleLive.playing && singleLive.w > 0, JSON.stringify(singleLive));
+  const singleText = await singlePage.locator('body').innerText();
+  check('single-camera switch is not an error state', !/ক্যামেরা চালু করা যায়নি|ক্যামেরাটি এখন ব্যবহারে আছে/.test(singleText), singleText.match(/.{0,40}ক্যামেরা.{0,40}/)?.[0] || '');
   await singleCtx.close();
 
   console.log('\n=== RESULTS ===');
