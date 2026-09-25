@@ -33,6 +33,27 @@ const SUGGESTIONS = [
 
 const MOBILE_QUERY = "(max-width: 639px)";
 
+/**
+ * Colours are inline on purpose.
+ *
+ * The header is white text, so if a browser ever serves a stale stylesheet the
+ * header background would be missing and the title would render white-on-white
+ * and vanish. Inline styles always win over a stylesheet, so the panel stays
+ * legible even when the cached CSS is out of date. Only geometry (position,
+ * size, the 640px switch) lives in globals.css, where a stale sheet costs
+ * layout rather than content.
+ */
+const HEAD_STYLE = { background: "var(--portal-accent, #15803d)", color: "#ffffff" } as const;
+const HEAD_TEXT_STYLE = { color: "#ffffff" } as const;
+const BODY_TEXT_STYLE = { color: "var(--portal-text, #0f172a)" } as const;
+const MUTED_TEXT_STYLE = { color: "var(--portal-text-secondary, #475569)" } as const;
+const SUGGESTION_STYLE = {
+  border: "1px solid var(--portal-accent, #15803d)",
+  color: "var(--portal-accent, #15803d)",
+  background: "transparent",
+} as const;
+const SURFACE_STYLE = { background: "var(--portal-surface, #ffffff)" } as const;
+
 interface Turn {
   id: string;
   role: "user" | "assistant";
@@ -43,7 +64,16 @@ function Bubble({ turn }: { turn: Turn }) {
   const isUser = turn.role === "user";
   return (
     <div className={isUser ? "uchat-row-user" : "uchat-row-bot"}>
-      <div className={isUser ? "uchat-bubble-user" : "uchat-bubble-bot"}>{turn.content}</div>
+      <div
+        className={isUser ? "uchat-bubble-user" : "uchat-bubble-bot"}
+        style={
+          isUser
+            ? { background: "var(--portal-accent, #15803d)", color: "#ffffff" }
+            : { background: "var(--portal-surface, #f1f5f9)", color: "var(--portal-text, #0f172a)", borderColor: "#cbd5e1" }
+        }
+      >
+        {turn.content}
+      </div>
     </div>
   );
 }
@@ -202,20 +232,24 @@ export function UniversalChatWidget() {
           className="uchat-panel"
           data-testid="chat-panel"
           data-layout={isMobile ? "sheet" : "docked"}
+          style={SURFACE_STYLE}
           role="dialog"
           aria-modal={isMobile ? true : undefined}
           aria-labelledby={titleId}
         >
-          <div className="uchat-head">
+          <div className="uchat-head" style={HEAD_STYLE}>
             <div className="uchat-title">
-              <Bot aria-hidden="true" className="size-[18px] shrink-0" />
-              <span id={titleId}>আইনি সহায়তা সহায়ক</span>
+              <Bot aria-hidden="true" className="size-[18px] shrink-0" style={HEAD_TEXT_STYLE} />
+              <span id={titleId} style={HEAD_TEXT_STYLE}>
+                আইনি সহায়তা সহায়ক
+              </span>
             </div>
             <button
               type="button"
               onClick={close}
               aria-label="সহায়ক বন্ধ করুন"
-              className="inline-flex cursor-pointer border-0 bg-transparent p-1 text-white"
+              className="inline-flex cursor-pointer border-0 bg-transparent p-1"
+              style={HEAD_TEXT_STYLE}
             >
               <X aria-hidden="true" className="size-[18px]" />
             </button>
@@ -228,9 +262,10 @@ export function UniversalChatWidget() {
             aria-live="polite"
             aria-label="সহায়কের উত্তর"
             className="uchat-log"
+            style={BODY_TEXT_STYLE}
           >
             {showWelcome ? (
-              <div className="uchat-welcome">
+              <div className="uchat-welcome" style={MUTED_TEXT_STYLE}>
                 <p className="mb-2">
                   স্বাগতম। আইনি সহায়তা, আবেদন ও ডকেট সম্পর্কে সংক্ষেপে জানতে চাইলে লিখুন। জটিল
                   মামলার চূড়ান্ত সিদ্ধান্তের জন্য ১৬৬৯৯ এ কল করুন।
@@ -241,6 +276,7 @@ export function UniversalChatWidget() {
                       key={suggestion}
                       type="button"
                       className="uchat-suggestion"
+                      style={SUGGESTION_STYLE}
                       onClick={() => void send(suggestion)}
                     >
                       {suggestion}
@@ -270,6 +306,7 @@ export function UniversalChatWidget() {
 
           <form
             className="uchat-composer"
+            style={SURFACE_STYLE}
             onSubmit={(event) => {
               event.preventDefault();
               void send(draft);
@@ -287,6 +324,11 @@ export function UniversalChatWidget() {
               placeholder="প্রশ্ন লিখুন…"
               maxLength={800}
               autoComplete="off"
+              style={{
+                color: "var(--portal-text, #0f172a)",
+                background: "var(--portal-surface, #ffffff)",
+                borderColor: "#94a3b8",
+              }}
             />
             <Button type="submit" size="icon" disabled={busy || !draft.trim()} aria-label="প্রশ্ন পাঠান">
               <Send aria-hidden="true" />

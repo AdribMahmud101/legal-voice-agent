@@ -190,6 +190,37 @@ async function main() {
   await mobile.setViewportSize({ width: 390, height: 844 });
   await mobileCtx.close();
 
+  // ---------- resilience: legible even with a stale stylesheet ----------
+  // A real report showed the panel rendering with an invisible header: white
+  // title text, no background. That is what happens when the markup is current
+  // but the cached CSS is not, and the colours lived only in the stylesheet.
+  // Colours are now inline, so strip every stylesheet and they must survive.
+  const bareCtx = await browser.newContext({ viewport: { width: 390, height: 844 }, isMobile: true, hasTouch: true });
+  const bare = await bareCtx.newPage();
+  await bare.goto(site, { waitUntil: 'networkidle' });
+  await bare.getByTestId('chat-fab').tap();
+  await bare.waitForSelector('[data-testid="chat-panel"]');
+  const bareInfo = await bare.evaluate(() => {
+    document.querySelectorAll('link[rel=stylesheet], style').forEach((node) => node.remove());
+    const head = document.querySelector('.uchat-head');
+    const title = document.querySelector('.uchat-title span');
+    const welcome = document.querySelector('.uchat-welcome');
+    const headStyle = head ? getComputedStyle(head) : null;
+    const titleStyle = title ? getComputedStyle(title) : null;
+    return {
+      headBg: headStyle?.backgroundColor ?? '',
+      titleColor: titleStyle?.color ?? '',
+      titleLen: (title?.textContent || '').trim().length,
+      welcomeLen: (welcome?.textContent || '').trim().length,
+    };
+  });
+  const opaque = (c) => Boolean(c) && c !== 'transparent' && !/rgba\(0, 0, 0, 0\)/.test(c);
+  check('header keeps a background with no stylesheet', opaque(bareInfo.headBg), JSON.stringify(bareInfo));
+  check('header title is white on that background', bareInfo.titleColor === 'rgb(255, 255, 255)', JSON.stringify(bareInfo));
+  check('header title still present with no stylesheet', bareInfo.titleLen > 0, JSON.stringify(bareInfo));
+  check('welcome text still present with no stylesheet', bareInfo.welcomeLen > 20, JSON.stringify(bareInfo));
+  await bareCtx.close();
+
   console.log('\n=== RESULTS ===');
   let failed = 0;
   for (const [k, v] of Object.entries(results)) {
