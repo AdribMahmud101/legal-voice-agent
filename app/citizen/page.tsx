@@ -2,17 +2,22 @@
 
 import { useEffect, useState } from "react";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { CitizenShell } from "@/lib/ui/shell/CitizenShell";
 import { Card, CardContent } from "@/lib/ui/components/Card";
 import { StatusBadge } from "@/lib/ui/components/StatusBadge";
 import { EmptyState } from "@/lib/ui/components/EmptyState";
 import { Button } from "@/lib/ui/components/Button";
 import { useVoiceSession } from "@/hooks/use-voice-session";
+import { VerificationCard } from "@/components/identity/verification-card";
+import { VerificationProgressBar } from "@/components/identity/verification-progress";
 import { getStatusVariant, getStatusLabel } from "@/lib/data/case-store";
+import type { PortalCase } from "@/lib/data/case-projection";
 
 export default function CitizenDashboard() {
+  const router = useRouter();
   const { currentUser } = useVoiceSession();
-  const [cases, setCases] = useState<any[]>([]);
+  const [cases, setCases] = useState<PortalCase[]>([]);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
@@ -37,7 +42,25 @@ export default function CitizenDashboard() {
         </p>
       </div>
 
+      <VerificationProgressBar className="mb-6" />
+
       <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(300px, 1fr))", gap: "var(--space-lg)", marginBottom: "var(--space-2xl)" }}>
+        <VerificationCard />
+        <Link href="/citizen/profile" style={{ textDecoration: "none", color: "inherit" }}>
+          <Card style={{ height: "100%", transition: "transform var(--transition-fast)", cursor: "pointer" }}>
+            <CardContent style={{ display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", height: "100%", padding: "var(--space-xl)", textAlign: "center", gap: "var(--space-md)" }}>
+              <div style={{ width: "48px", height: "48px", borderRadius: "50%", backgroundColor: "var(--portal-accent-subtle)", display: "flex", alignItems: "center", justifyContent: "center", color: "var(--portal-accent-text)", fontSize: "1.5rem" }}>
+                👤
+              </div>
+              <div>
+                <h3 style={{ fontFamily: "var(--font-bn)", fontSize: "1.125rem", fontWeight: 700 }}>আমার প্রোফাইল</h3>
+                <p style={{ fontFamily: "var(--font-bn)", fontSize: "0.875rem", color: "var(--portal-text-secondary)", marginTop: "var(--space-xs)" }}>
+                  অ্যাকাউন্ট, যাচাই ও আবেদনের সারসংক্ষেপ
+                </p>
+              </div>
+            </CardContent>
+          </Card>
+        </Link>
         <Link href="/citizen/apply" style={{ textDecoration: "none", color: "inherit" }}>
           <Card style={{ height: "100%", transition: "transform var(--transition-fast)", cursor: "pointer", border: "2px dashed var(--portal-border)", backgroundColor: "var(--portal-bg-subtle)" }}>
             <CardContent style={{ display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", height: "100%", padding: "var(--space-xl)", textAlign: "center", gap: "var(--space-md)" }}>
@@ -75,25 +98,29 @@ export default function CitizenDashboard() {
       </h2>
       
       {loading ? (
-        <div style={{ padding: "var(--space-xl)", textAlign: "center", color: "var(--portal-text-secondary)" }}>Loading...</div>
+        <Card>
+          <CardContent style={{ fontFamily: "var(--font-bn)", padding: "var(--space-xl)", textAlign: "center", color: "var(--portal-text-secondary)" }}>
+            তথ্য লোড হচ্ছে…
+          </CardContent>
+        </Card>
       ) : cases.length === 0 ? (
         <EmptyState 
-          title="কোনো মামলা পাওয়া যায়নি" 
+          title="কোনো মামলা পাওয়া যায়নি" 
           description="আপনার বর্তমানে কোনো চলমান আইনি আবেদন বা মামলা নেই।" 
-          action={<Button onClick={() => window.location.href = "/citizen/apply"}>নতুন আবেদন করুন</Button>}
+          action={<Button onClick={() => router.push("/citizen/apply")}>নতুন আবেদন করুন</Button>}
         />
       ) : (
         <div style={{ display: "flex", flexDirection: "column", gap: "var(--space-md)" }}>
           {cases.map((c) => (
             <Link key={c.id} href={`/citizen/track?id=${c.id}`} style={{ textDecoration: "none" }}>
               <Card>
-                <CardContent style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                  <div>
-                    <h3 style={{ fontFamily: "var(--font-bn)", fontSize: "1rem", fontWeight: 600, color: "var(--portal-text)" }}>
-                      {c.id}
+                <CardContent style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: "var(--space-md)" }}>
+                  <div style={{ minWidth: 0 }}>
+                    <h3 style={{ fontFamily: "var(--font-bn)", fontSize: "1rem", fontWeight: 600, color: "var(--portal-text)", margin: 0 }}>
+                      {c.docketId || c.applicationId || c.id}
                     </h3>
-                    <p style={{ fontFamily: "var(--font-bn)", fontSize: "0.875rem", color: "var(--portal-text-secondary)", marginTop: "var(--space-2xs)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", maxWidth: "250px" }}>
-                      {c.summary}
+                    <p style={{ fontFamily: "var(--font-bn)", fontSize: "0.875rem", color: "var(--portal-text-secondary)", marginTop: "var(--space-2xs)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", maxWidth: "320px" }}>
+                      {c.summary || c.problemStatement}
                     </p>
                   </div>
                   <StatusBadge variant={getStatusVariant(c.status)}>{getStatusLabel(c.status)}</StatusBadge>
