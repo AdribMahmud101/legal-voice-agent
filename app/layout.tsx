@@ -21,8 +21,8 @@ const hindSiliguri = Hind_Siliguri({
 });
 
 export const metadata: Metadata = {
-  title: "জাতীয় আইনগত সহায়তা সংস্থা (NLASO) • হেল্পলাইন ১৬৬৯৯",
-  description: "গণপ্রজাতন্ত্রী বাংলাদেশ সরকার • National Legal Aid Voice Helpline 16699",
+  title: "DLAS · ডিজিটাল লিগ্যাল এইড সিস্টেম",
+  description: "ডিজিটাল লিগ্যাল এইড সিস্টেম • Digital Legal Aid System",
 };
 
 export default function RootLayout({ children }: LayoutProps<"/">) {

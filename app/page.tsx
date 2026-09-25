@@ -38,15 +38,17 @@ export default function Home() {
   // Track call duration in seconds
   useEffect(() => {
     let timer: NodeJS.Timeout | null = null;
+    let resetTimer: NodeJS.Timeout | null = null;
     if (isCallActive) {
       timer = setInterval(() => {
         setCallDuration((prev) => prev + 1);
       }, 1000);
     } else {
-      setCallDuration(0);
+      resetTimer = setTimeout(() => setCallDuration(0), 0);
     }
     return () => {
       if (timer) clearInterval(timer);
+      if (resetTimer) clearTimeout(resetTimer);
     };
   }, [isCallActive]);
 

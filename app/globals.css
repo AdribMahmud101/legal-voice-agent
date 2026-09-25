@@ -1,15 +1,81 @@
 @import "tailwindcss";
+@import "tw-animate-css";
 
-:root {
-  --background: #f8fafc;
-  --foreground: #0f172a;
+/*
+ * shadcn/ui theme, mapped onto the existing portal design tokens
+ * (lib/ui/theme/tokens.css) so there is a single source of truth for colour.
+ *
+ * `:root:root` (not `:root`) is deliberate: app/portal.css is imported after
+ * this file and still declares legacy generic names such as --muted and --card
+ * on `:root`. Doubling the selector keeps the shadcn tokens winning without
+ * having to rename the reference design's variables.
+ */
+:root:root {
+  --background: var(--portal-bg, #f8fafc);
+  --foreground: var(--portal-text, #0f172a);
+
+  --card: var(--portal-white, #ffffff);
+  --card-foreground: var(--portal-text, #0f172a);
+
+  --popover: var(--portal-white, #ffffff);
+  --popover-foreground: var(--portal-text, #0f172a);
+
+  --primary: var(--portal-accent, #15803d);
+  --primary-foreground: var(--portal-text-on-accent, #ffffff);
+
+  --secondary: var(--portal-bg-subtle, #f1f5f9);
+  --secondary-foreground: var(--portal-text, #0f172a);
+
+  --muted: var(--portal-bg-subtle, #f1f5f9);
+  --muted-foreground: var(--portal-text-secondary, #475569);
+
+  --accent: var(--portal-accent-subtle, #f0fdf4);
+  --accent-foreground: var(--portal-accent-text, #14532d);
+
+  --destructive: #b91c1c;
+  --destructive-foreground: #ffffff;
+
+  --border: var(--portal-border, #e2e8f0);
+  --input: var(--portal-border-strong, #cbd5e1);
+  --ring: var(--portal-accent, #15803d);
+
+  --radius: 0.625rem;
 }
 
 @theme inline {
   --color-background: var(--background);
   --color-foreground: var(--foreground);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-popover: var(--popover);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-destructive: var(--destructive);
+  --color-destructive-foreground: var(--destructive-foreground);
+  --color-border: var(--border);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
+
+  --radius-sm: calc(var(--radius) - 4px);
+  --radius-md: calc(var(--radius) - 2px);
+  --radius-lg: var(--radius);
+  --radius-xl: calc(var(--radius) + 4px);
+
   --font-sans: var(--font-geist-sans);
   --font-mono: var(--font-geist-mono);
+}
+
+@layer base {
+  * {
+    border-color: var(--border);
+  }
 }
 
 body {
@@ -18,4 +84,3 @@ body {
   color: var(--foreground);
   font-family: Arial, Helvetica, sans-serif;
 }
-

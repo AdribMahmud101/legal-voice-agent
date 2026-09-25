@@ -1,8 +1,8 @@
 "use client";
 
 import Link from "next/link";
-import { useState, useEffect, Suspense } from "react";
-import { useRouter, useSearchParams } from "next/navigation";
+import { useState, Suspense } from "react";
+import { useSearchParams } from "next/navigation";
 import { MOCK_ROLE_IDENTITIES, ROLE_LABELS, type StaffRole } from "@/lib/auth/roles";
 import { Button } from "@/lib/ui/components/Button";
 import { FormField } from "@/lib/ui/components/FormField";
@@ -11,18 +11,8 @@ import { Card, CardContent } from "@/lib/ui/components/Card";
 const MOCK_ROLES = Object.keys(MOCK_ROLE_IDENTITIES) as StaffRole[];
 
 function LoginContent() {
-  const router = useRouter();
   const searchParams = useSearchParams();
-  const [activeTab, setActiveTab] = useState<"citizen" | "staff">("citizen");
-
-  useEffect(() => {
-    const tab = searchParams.get("tab");
-    if (tab === "staff") {
-      setActiveTab("staff");
-    } else if (tab === "citizen") {
-      setActiveTab("citizen");
-    }
-  }, [searchParams]);
+  const [activeTab, setActiveTab] = useState<"citizen" | "staff">(() => searchParams.get("tab") === "staff" ? "staff" : "citizen");
 
   // Citizen Login State
   const [phone, setPhone] = useState("");
@@ -31,7 +21,7 @@ function LoginContent() {
   const [citizenError, setCitizenError] = useState("");
 
   // Staff Login State
-  const [selectedRole, setSelectedRole] = useState<StaffRole>("dlao_officer");
+  const [selectedRole, setSelectedRole] = useState<StaffRole>("chief_legal_aid_officer");
   const [isStaffLoading, setIsStaffLoading] = useState(false);
   const [staffError, setStaffError] = useState("");
 

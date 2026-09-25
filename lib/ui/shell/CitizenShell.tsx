@@ -2,119 +2,81 @@
 
 import { type ReactNode } from "react";
 import Link from "next/link";
+import { usePathname, useRouter } from "next/navigation";
+import { LogOut } from "lucide-react";
+
 import { AgentFab } from "./AgentFab";
+import { ResponsiveNav, type ResponsiveNavItem } from "@/components/ui/responsive-nav";
+import { Button } from "@/components/ui/button";
+
+const NAV_ITEMS: ResponsiveNavItem[] = [
+  { href: "/citizen", label: "ড্যাশবোর্ড" },
+  { href: "/citizen/apply", label: "নতুন আবেদন" },
+  { href: "/citizen/track", label: "ট্র্যাক" },
+  { href: "/citizen/documents", label: "ডকুমেন্ট" },
+  { href: "/citizen/sms", label: "এসএমএস" },
+  { href: "/citizen/profile", label: "প্রোফাইল" },
+];
+
+const LOGOUT_ITEM_CLASS =
+  "w-full justify-start text-destructive hover:bg-destructive/10 hover:text-destructive md:ml-2 md:w-auto md:justify-center md:border-l md:border-border md:pl-3";
 
 interface CitizenShellProps {
   children: ReactNode;
 }
 
 export function CitizenShell({ children }: CitizenShellProps) {
-  return (
-    <div
-      data-portal="citizen"
-      style={{
-        minHeight: "100vh",
-        display: "flex",
-        flexDirection: "column",
-        backgroundColor: "var(--portal-bg)",
-      }}
-    >
-      <header
-        style={{
-          backgroundColor: "var(--portal-white)",
-          borderBottom: "1px solid var(--portal-border)",
-          padding: "var(--space-md) var(--space-xl)",
-          display: "flex",
-          alignItems: "center",
-          justifyContent: "space-between",
-          position: "sticky",
-          top: 0,
-          zIndex: 30,
-        }}
-      >
-        <div style={{ display: "flex", alignItems: "center", gap: "var(--space-md)" }}>
-          <div
-            style={{
-              width: "40px",
-              height: "40px",
-              borderRadius: "var(--radius-full)",
-              backgroundColor: "var(--portal-accent-light)",
-              display: "flex",
-              alignItems: "center",
-              justifyContent: "center",
-              fontSize: "1.25rem",
-            }}
-          >
-            🏛️
-          </div>
-          <div>
-            <h1
-              style={{
-                fontFamily: "var(--font-bn)",
-                fontSize: "1.125rem",
-                fontWeight: 700,
-                color: "var(--portal-text)",
-                margin: 0,
-                lineHeight: 1.2,
-              }}
-            >
-              নাগরিক পোর্টাল
-            </h1>
-            <p
-              style={{
-                fontFamily: "var(--font-bn)",
-                fontSize: "0.8125rem",
-                color: "var(--portal-text-secondary)",
-                margin: 0,
-              }}
-            >
-              জাতীয় আইনগত সহায়তা প্রদান সংস্থা
-            </p>
-          </div>
-        </div>
+  const pathname = usePathname();
+  const router = useRouter();
 
-        <nav style={{ display: "flex", gap: "var(--space-lg)" }}>
-          <Link
-            href="/citizen"
-            style={{
-              fontFamily: "var(--font-bn)",
-              fontWeight: 600,
-              color: "var(--portal-text)",
-              textDecoration: "none",
-            }}
-          >
-            ড্যাশবোর্ড
+  async function handleLogout() {
+    await fetch("/api/auth/logout", { method: "POST", credentials: "include" }).catch(() => undefined);
+    router.push("/login");
+    router.refresh();
+  }
+
+  const logoutButton = (
+    <Button
+      type="button"
+      variant="ghost"
+      onClick={handleLogout}
+      className={LOGOUT_ITEM_CLASS}
+      aria-label="লগআউট"
+    >
+      <LogOut aria-hidden="true" />
+      লগআউট
+    </Button>
+  );
+
+  return (
+    <div className="flex min-h-screen flex-col bg-background">
+      <header className="sticky top-0 z-40 border-b border-border bg-card">
+        <div className="mx-auto flex w-full max-w-[1200px] items-center justify-between gap-3 px-4 py-3 sm:px-6">
+          <Link href="/citizen" className="flex min-w-0 items-center gap-3" aria-label="নাগরিক পোর্টাল — ড্যাশবোর্ড">
+            <span
+              aria-hidden="true"
+              className="flex size-9 shrink-0 items-center justify-center rounded-full bg-accent text-lg"
+            >
+              🏛️
+            </span>
+            <span className="flex min-w-0 flex-col">
+              <span className="truncate text-base font-bold leading-tight text-foreground">নাগরিক পোর্টাল</span>
+              <span className="truncate text-xs text-muted-foreground">জাতীয় আইনগত সহায়তা প্রদান সংস্থা</span>
+            </span>
           </Link>
-          <button
-            onClick={() => {
-              document.cookie = "auth_session=; path=/; expires=Thu, 01 Jan 1970 00:00:00 GMT";
-              window.location.href = "/login";
-            }}
-            style={{
-              background: "transparent",
-              border: "none",
-              color: "var(--portal-text-secondary)",
-              fontFamily: "var(--font-bn)",
-              fontWeight: 600,
-              cursor: "pointer",
-            }}
-          >
-            লগআউট
-          </button>
-        </nav>
+
+          <ResponsiveNav
+            items={NAV_ITEMS}
+            isActive={(href) => pathname === href}
+            label="নাগরিক পোর্টাল নেভিগেশন"
+            footer={logoutButton}
+            itemClassName="text-foreground hover:bg-accent hover:text-accent-foreground"
+            activeItemClassName="text-accent-foreground underline decoration-primary decoration-2 underline-offset-4"
+          />
+        </div>
       </header>
 
-      <main
-        style={{
-          flex: 1,
-          padding: "var(--space-xl)",
-          maxWidth: "1200px",
-          margin: "0 auto",
-          width: "100%",
-        }}
-      >
-        {children}
-      </main>
+      <main className="mx-auto w-full max-w-[1200px] flex-1 px-4 py-6 sm:px-6">{children}</main>
 
       <AgentFab />
     </div>
