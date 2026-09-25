@@ -28,6 +28,13 @@ const GUIDANCE: Record<"nid" | "passport", { ratio: number; hint: string }> = {
   passport: { ratio: 125 / 88, hint: "পাসপোর্টের তথ্যপাতা সমতলে ধরে চারটি কোণ দেখাচ্ছেন নিশ্চিত করুন।" },
 };
 
+/** Best-effort read of which camera a device is. Null when the label is opaque. */
+function facingFromLabel(label: string): FacingMode | null {
+  if (/front|user|সামনে|前置/i.test(label)) return "user";
+  if (/back|rear|environment|পিছনে|后置/i.test(label)) return "environment";
+  return null;
+}
+
 export function IdCapture({
   documentType,
   onCapture,
@@ -42,6 +49,8 @@ export function IdCapture({
   const [message, setMessage] = useState("");
   const [shot, setShot] = useState<string | null>(null);
   const [facing, setFacing] = useState<FacingMode>(initialFacing);
+  const [cameras, setCameras] = useState<MediaDeviceInfo[]>([]);
+  const [activeDeviceId, setActiveDeviceId] = useState<string | null>(null);
   const isFace = variant === "face";
 
   const stopStream = useCallback(() => {
@@ -51,50 +60,100 @@ export function IdCapture({
 
   useEffect(() => stopStream, [stopStream]);
 
-  const start = useCallback(async (nextFacing: FacingMode = "environment") => {
-    setMessage("");
-    if (typeof window === "undefined") return;
-
-    if (!navigator.mediaDevices?.getUserMedia) {
-      // getUserMedia needs a secure context; the softphone already requires
-      // getUserMedia for calls, so this is only reachable on odd browsers.
-      setState("unsupported");
-      setMessage("এই ব্রাউজারে ক্যামেরা অ্যাক্সেস নেই। নিচে ছবি আপলোড করার অপশনটি ব্যবহার করুন।");
-      return;
-    }
-
-    setState("requesting");
+  // Device labels are only populated after permission is granted, so this is
+  // refreshed every time a stream opens rather than once on mount.
+  const refreshCameras = useCallback(async () => {
     try {
-      const stream = await navigator.mediaDevices.getUserMedia({
-        video: {
-          facingMode: { ideal: nextFacing },
-          width: { ideal: 1920 },
-          height: { ideal: 1080 },
-        },
-        audio: false,
-      });
-      streamRef.current = stream;
-      if (videoRef.current) {
-        videoRef.current.srcObject = stream;
-        await videoRef.current.play().catch(() => undefined);
-      }
-      setState("ready");
-    } catch (error) {
-      const name = error instanceof DOMException ? error.name : "";
-      if (name === "NotAllowedError" || name === "SecurityError") {
-        setState("denied");
-        setMessage(
-          "ক্যামেরার অনুমতি পাওয়া যায়নি। ব্রাউজারের ঠিকানা বারে ক্যামেরা আইকনে অনুমতি দিন, অথবা নিচে ছবি আপলোড করুন।",
-        );
-      } else if (name === "NotFoundError" || name === "OverconstrainedError") {
-        setState("unsupported");
-        setMessage("এই ডিভাইসে ক্যামেরা পাওয়া যায়নি। নিচে ছবি আপলোড করুন।");
-      } else {
-        setState("error");
-        setMessage(`ক্যামেরা চালু করা যায়নি: ${error instanceof Error ? error.message : String(error)}`);
-      }
+      const all = await navigator.mediaDevices.enumerateDevices();
+      setCameras(all.filter((device) => device.kind === "videoinput"));
+    } catch {
+      setCameras([]);
     }
   }, []);
+
+  useEffect(() => {
+    const media = navigator.mediaDevices;
+    if (!media?.addEventListener) return;
+    // A headset or foldable being plugged in changes the available cameras.
+    const onChange = () => void refreshCameras();
+    media.addEventListener("devicechange", onChange);
+    return () => media.removeEventListener("devicechange", onChange);
+  }, [refreshCameras]);
+
+  /**
+   * Opens a camera. Passing a deviceId pins the stream to that exact camera;
+   * `facingMode` alone is only a hint, so the browser is free to hand back the
+   * same camera and silently ignore a requested flip.
+   */
+  const start = useCallback(
+    async (target?: { deviceId?: string; facing?: FacingMode }) => {
+      setMessage("");
+      if (typeof window === "undefined") return;
+
+      if (!navigator.mediaDevices?.getUserMedia) {
+        // getUserMedia needs a secure context; the softphone already requires
+        // getUserMedia for calls, so this is only reachable on odd browsers.
+        setState("unsupported");
+        setMessage("এই ব্রাউজারে ক্যামেরা অ্যাক্সেস নেই। নিচে ছবি আপলোড করার অপশনটি ব্যবহার করুন।");
+        return;
+      }
+
+      const wanted = target?.deviceId
+        ? { deviceId: { exact: target.deviceId } }
+        : { facingMode: { ideal: target?.facing ?? "environment" } };
+      const constraints = {
+        video: { ...wanted, width: { ideal: 1920 }, height: { ideal: 1080 } },
+        audio: false,
+      };
+
+      setState("requesting");
+      try {
+        let stream: MediaStream;
+        try {
+          stream = await navigator.mediaDevices.getUserMedia(constraints);
+        } catch (error) {
+          // A pinned device can disappear between enumeration and open (or the
+          // browser may refuse `exact`). Retry without it before giving up.
+          if (!target?.deviceId) throw error;
+          stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: false });
+        }
+
+        streamRef.current = stream;
+        if (videoRef.current) {
+          videoRef.current.srcObject = stream;
+          await videoRef.current.play().catch(() => undefined);
+        }
+
+        const track = stream.getVideoTracks()[0];
+        const openedId = track?.getSettings().deviceId ?? null;
+        setActiveDeviceId(openedId);
+        await refreshCameras();
+        setState("ready");
+        // Report what actually opened, not what we asked for. Some platforms
+        // give opaque labels, so fall back to the intent we passed in.
+        setFacing((prev) => {
+          if (!openedId) return target?.facing ?? prev;
+          const label = cameras.find((device) => device.deviceId === openedId)?.label ?? "";
+          return facingFromLabel(label) ?? target?.facing ?? prev;
+        });
+      } catch (error) {
+        const name = error instanceof DOMException ? error.name : "";
+        if (name === "NotAllowedError" || name === "SecurityError") {
+          setState("denied");
+          setMessage(
+            "ক্যামেরার অনুমতি পাওয়া যায়নি। ব্রাউজারের ঠিকানা বারে ক্যামেরা আইকনে অনুমতি দিন, অথবা নিচে ছবি আপলোড করুন।",
+          );
+        } else if (name === "NotFoundError" || name === "OverconstrainedError") {
+          setState("unsupported");
+          setMessage("এই ডিভাইসে ক্যামেরা পাওয়া যায়নি। নিচে ছবি আপলোড করুন।");
+        } else {
+          setState("error");
+          setMessage(`ক্যামেরা চালু করা যায়নি: ${error instanceof Error ? error.message : String(error)}`);
+        }
+      }
+    },
+    [cameras, refreshCameras],
+  );
 
   const capture = useCallback(() => {
     const video = videoRef.current;
@@ -114,17 +173,19 @@ export function IdCapture({
   const retake = useCallback(() => {
     setShot(null);
     onCapture("");
-    void start(facing);
-  }, [facing, onCapture, start]);
+    // Reopen whichever camera is live now, not the original default.
+    void start(activeDeviceId ? { deviceId: activeDeviceId } : { facing });
+  }, [activeDeviceId, facing, onCapture, start]);
 
-  /** Flips between the rear and front camera. */
+  /** Moves to the next physical camera, so the flip is guaranteed to change. */
   const switchCamera = useCallback(() => {
-    const next: FacingMode = facing === "environment" ? "user" : "environment";
+    const next = cameras.find((device) => device.deviceId !== activeDeviceId);
+    if (!next) return;
+    const nextFacing: FacingMode = facing === "environment" ? "user" : "environment";
     setShot(null);
     onCapture("");
-    setFacing(next);
-    void start(next);
-  }, [facing, onCapture, start]);
+    void start({ deviceId: next.deviceId, facing: nextFacing });
+  }, [activeDeviceId, cameras, facing, onCapture, start]);
 
   const handleFile = useCallback(
     (file: File | undefined) => {
@@ -150,6 +211,7 @@ export function IdCapture({
     ? "মুখটি বৃত্তের ভেতরে রাখুন, সোজা ক্যামেরার দিকে তাকিয়ে থাকুন এবং আলো সমতল রাখুন।"
     : hint;
   const cameraLabel = facing === "environment" ? "পিছনের ক্যামেরা" : "সামনের ক্যামেরা";
+  const canSwitch = cameras.length > 1;
 
   return (
     <div className={cn("flex flex-col gap-3", className)}>
@@ -212,7 +274,7 @@ export function IdCapture({
 
       <div className="flex flex-wrap gap-2">
         {state !== "ready" || shot ? (
-          <Button type="button" onClick={() => void start()} disabled={disabled} variant="outline">
+          <Button type="button" onClick={() => void start({ facing })} disabled={disabled} variant="outline">
             <Camera aria-hidden="true" />
             {state === "denied" || state === "unsupported" ? "আবার চেষ্টা করুন" : "ক্যামেরা চালু করুন"}
           </Button>
@@ -230,7 +292,8 @@ export function IdCapture({
           </Button>
         ) : null}
 
-        {state === "ready" && !shot ? (
+        {/* Only offered when the device really exposes more than one camera. */}
+        {state === "ready" && !shot && canSwitch ? (
           <Button
             type="button"
             onClick={switchCamera}

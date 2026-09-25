@@ -1,20 +1,11 @@
 import { chromium } from 'playwright-core';
 
-const site = 'https://legal-voice-agent.adribmahmud.workers.dev/';
+const site = process.env.SITE_URL || 'https://legal-voice-agent.adribmahmud.workers.dev/';
 
-async function main() {
-  const browser = await chromium.launch({
-    args: ['--use-fake-ui-for-media-stream', '--use-fake-device-for-media-stream', '--autoplay-policy=no-user-gesture-required'],
-  });
-  const ctx = await browser.newContext({ viewport: { width: 430, height: 1000 }, isMobile: true, hasTouch: true, permissions: ['camera'] });
-  const page = await ctx.newPage();
-  const results = {};
-  const check = (k, v, extra = '') => {
-    results[k] = v;
-    if (!v) console.log(`  FAIL ${k} ${extra}`);
-  };
-
-  await page.goto(site, { waitUntil: 'networkidle' });
+// Chromium's fake device labels are opaque ("fake_device_0"), so a label-based
+// front/back guess cannot be trusted here. Everything below asserts on the
+// deviceId the browser actually hands back, which is ground truth.
+async function seedSession(page) {
   await page.evaluate(async () => {
     await fetch('/api/roles/complete', {
       method: 'POST',
@@ -40,6 +31,32 @@ async function main() {
       body: JSON.stringify({ documentType: 'nid', documentNumber: '19927451234022222' }),
     });
   });
+}
+
+const activeDevice = (page) =>
+  page.evaluate(() => {
+    const track = document.querySelector('video')?.srcObject?.getVideoTracks?.()[0];
+    return {
+      deviceId: track?.getSettings?.().deviceId ?? null,
+      playing: document.querySelector('video') ? !document.querySelector('video').paused : false,
+      label: track?.label ?? '',
+    };
+  });
+
+async function main() {
+  const browser = await chromium.launch({
+    args: ['--use-fake-ui-for-media-stream', '--use-fake-device-for-media-stream', '--autoplay-policy=no-user-gesture-required'],
+  });
+  const ctx = await browser.newContext({ viewport: { width: 430, height: 1000 }, isMobile: true, hasTouch: true, permissions: ['camera'] });
+  const page = await ctx.newPage();
+  const results = {};
+  const check = (k, v, extra = '') => {
+    results[k] = v;
+    if (!v) console.log(`  FAIL ${k} ${extra}`);
+  };
+
+  await page.goto(site, { waitUntil: 'networkidle' });
+  await seedSession(page);
 
   // ---------- face capture ----------
   await page.goto(`${site}citizen/verify/face`, { waitUntil: 'networkidle' });
@@ -69,36 +86,54 @@ async function main() {
   check('face frame is circular', parseFloat(frame.radius) >= 140, `radius=${frame.radius}`);
   check('face frame is constrained in width', frame.maxW <= 330, `w=${frame.maxW}`);
 
-  // rear camera is the default
-  const defaultFacing = await page.evaluate(() => {
-    const track = document.querySelector('video')?.srcObject?.getVideoTracks?.()[0];
-    return track?.getSettings?.().facingMode ?? 'unknown';
+  const cameraCount = await page.evaluate(async () => {
+    const all = await navigator.mediaDevices.enumerateDevices();
+    return all.filter((d) => d.kind === 'videoinput').length;
   });
-  check('defaults to rear camera', defaultFacing !== 'user', `facingMode=${defaultFacing}`);
+
+  const before = await activeDevice(page);
+  check('a camera device is pinned', !!before.deviceId, JSON.stringify(before));
 
   const switchBtn = page.getByRole('button', { name: /ক্যামেরা পরিবর্তন করুন/ });
-  check('switch button present', (await switchBtn.count()) === 1);
+  check('switch button present when >1 camera', cameraCount > 1 ? (await switchBtn.count()) === 1 : true, `cameras=${cameraCount}`);
   check('switch button announces active camera', /পিছনের ক্যামেরা/.test((await switchBtn.getAttribute('aria-label')) || ''), await switchBtn.getAttribute('aria-label'));
 
+  // The regression that matters: the browser must report a DIFFERENT device.
   await switchBtn.click();
   await page.waitForTimeout(2500);
-  const afterSwitch = await page.evaluate(() => {
-    const track = document.querySelector('video')?.srcObject?.getVideoTracks?.()[0];
-    const video = document.querySelector('video');
-    return { facingMode: track?.getSettings?.().facingMode ?? 'unknown', playing: video ? !video.paused : false };
-  });
-  check('switching restarts the stream', afterSwitch.playing, JSON.stringify(afterSwitch));
+  const after = await activeDevice(page);
+  check('switching restarts the stream', after.playing, JSON.stringify(after));
+  check('switch actually changes the camera device', !!after.deviceId && after.deviceId !== before.deviceId, `before=${before.deviceId} after=${after.deviceId}`);
   check('switch button label updates', /সামনের ক্যামেরা/.test((await switchBtn.getAttribute('aria-label')) || ''), await switchBtn.getAttribute('aria-label'));
   await page.screenshot({ path: '/tmp/opencode/face-circle.png' });
 
-  // switching back returns to the rear camera
+  // switching back returns to the original device
   await switchBtn.click();
   await page.waitForTimeout(2000);
-  const backAgain = await page.evaluate(() => {
-    const track = document.querySelector('video')?.srcObject?.getVideoTracks?.()[0];
-    return track?.getSettings?.().facingMode ?? 'unknown';
+  const backAgain = await activeDevice(page);
+  check('can switch back to the first camera', backAgain.deviceId === before.deviceId, `expected=${before.deviceId} got=${backAgain.deviceId}`);
+
+  // ---------- single-camera device must not offer a switch ----------
+  const singleCtx = await browser.newContext({ viewport: { width: 430, height: 1000 }, isMobile: true, hasTouch: true, permissions: ['camera'] });
+  await singleCtx.addInitScript(() => {
+    const real = navigator.mediaDevices.enumerateDevices.bind(navigator.mediaDevices);
+    navigator.mediaDevices.enumerateDevices = async () => {
+      const all = await real();
+      return all.filter((d) => d.kind !== 'videoinput').concat(all.filter((d) => d.kind === 'videoinput').slice(0, 1));
+    };
   });
-  check('can switch back to rear', backAgain !== 'user', `facingMode=${backAgain}`);
+  const singlePage = await singleCtx.newPage();
+  await singlePage.goto(site, { waitUntil: 'networkidle' });
+  await seedSession(singlePage);
+  await singlePage.goto(`${site}citizen/verify/face`, { waitUntil: 'networkidle' });
+  await singlePage.waitForTimeout(1800);
+  await singlePage.getByRole('button', { name: /ক্যামেরা চালু করুন/ }).click();
+  await singlePage.waitForTimeout(2500);
+  const singleSwitch = singlePage.getByRole('button', { name: /ক্যামেরা পরিবর্তন করুন/ });
+  check('switch button hidden on single-camera device', (await singleSwitch.count()) === 0, `count=${await singleSwitch.count()}`);
+  const singleLive = await activeDevice(singlePage);
+  check('single-camera device still captures', singleLive.playing, JSON.stringify(singleLive));
+  await singleCtx.close();
 
   // ---------- document capture must stay rectangular ----------
   await page.goto(`${site}citizen/verify`, { waitUntil: 'networkidle' });
