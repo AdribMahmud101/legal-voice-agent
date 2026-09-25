@@ -4,6 +4,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { VoiceAgent } from "@/lib/voice-sdk/client";
 import type { SessionUser } from "@/lib/auth/roles";
 import type { SdkConfig, SdkEvent } from "@/lib/voice-sdk/types";
+import type { SeverityLevel } from "@/lib/agent/knowledge/severity-classification";
 
 export type SessionPhase =
   | "idle"
@@ -38,17 +39,27 @@ export type IntakeStep =
   | "idle"
   | "problem"
   | "disability"
+  | "disability_type"
   | "gender"
   | "name"
   | "address"
   | "complete";
 
 export interface IntakeData {
-  problem?: string;
-  hasDisability?: boolean | null;
-  gender?: string | null;
-  callerName?: string | null;
-  address?: string | null;
+   problem?: string;
+   hasDisability?: boolean | null;
+   disabilityType?: string | null;
+   disabilityTypeCode?: string | null;
+   gender?: string | null;
+
+   callerName?: string | null;
+   address?: string | null;
+   severityLevel?: SeverityLevel | null;
+   severityTags?: string[];
+   severityFactors?: string[];
+   severityCategory?: string | null;
+   severityCaseReference?: string | null;
+
 }
 
 interface UseVoiceSessionResult {
@@ -162,7 +173,13 @@ export function useVoiceSession(onSdkEvent?: (evt: SdkEvent) => void): UseVoiceS
           setSessionId(null);
           break;
         }
-        case "error": {
+         case "voice_authenticated": {
+           setCurrentUser(evt.user);
+           pushLog({ kind: "system", text: `Voice login successful: ${evt.user.displayName}`, ts: Date.now() });
+           break;
+         }
+         case "error": {
+
           pushLog({ kind: "error", text: evt.message, ts: Date.now() });
           setPhase("error");
           break;

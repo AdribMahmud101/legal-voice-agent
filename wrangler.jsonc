@@ -21,6 +21,10 @@
 		{
 			"binding": "NEXT_INC_CACHE_R2_BUCKET",
 			"bucket_name": "legal-voice-agent-opennext-cache"
+		},
+		{
+			"binding": "CALL_RECORDINGS_R2",
+			"bucket_name": "legal-voice-agent-recordings"
 		}
 	],
 	"d1_databases": [

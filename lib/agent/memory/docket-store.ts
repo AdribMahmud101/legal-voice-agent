@@ -15,6 +15,8 @@ export type CaseCategory =
   | "general_civil"
   | "emergency_detention";
 
+import type { SeverityLevel } from "../knowledge/severity-classification";
+
 export type UrgencyLevel = "normal" | "urgent" | "emergency_danger";
 
 export type EligibilityStatus =
@@ -29,6 +31,8 @@ export interface CaseDocket {
   phone: string | null;
   gender: string | null;
   hasDisability: boolean | null;
+  disabilityType: string | null;
+  disabilityTypeCode: string | null;
   district: string | null;
   thana: string | null;
   category: CaseCategory | null;
@@ -36,6 +40,11 @@ export interface CaseDocket {
   monthlyIncomeBdt: number | null;
   eligibilityStatus: EligibilityStatus;
   eligibilityReason: string | null;
+  severityLevel: SeverityLevel | null;
+  severityTags: string[];
+  severityFactors: string[];
+  severityCategory: string | null;
+  severityCaseReference: string | null;
   docketId: string | null;
   urgency: UrgencyLevel;
   emergencyTriggered: boolean;
@@ -56,16 +65,25 @@ class DocketStore {
         sessionId,
         callerName: null,
         phone: null,
-        gender: null,
-        hasDisability: null,
-        district: null,
+         gender: null,
+         hasDisability: null,
+         disabilityType: null,
+         disabilityTypeCode: null,
+         district: null,
+
         thana: null,
         category: null,
         incidentSummary: null,
         monthlyIncomeBdt: null,
-        eligibilityStatus: "pending",
-        eligibilityReason: null,
-        docketId: null,
+         eligibilityStatus: "pending",
+         eligibilityReason: null,
+         severityLevel: null,
+         severityTags: [],
+         severityFactors: [],
+         severityCategory: null,
+         severityCaseReference: null,
+         docketId: null,
+
         urgency: "normal",
         emergencyTriggered: false,
         assignedOffice: null,

@@ -10,6 +10,7 @@
  */
 
 import type { SessionUser } from "../auth/roles";
+import type { SeverityLevel } from "../agent/knowledge/severity-classification";
 
 export type SessionMode = "direct";
 
@@ -64,16 +65,25 @@ export type SdkEvent =
     }
   | {
       type: "intake_step_changed";
-      step: "idle" | "problem" | "disability" | "gender" | "name" | "address" | "complete";
+      step: "idle" | "problem" | "disability" | "disability_type" | "gender" | "name" | "address" | "complete";
       data: {
         problem?: string;
         hasDisability?: boolean | null;
+        disabilityType?: string | null;
+        disabilityTypeCode?: string | null;
         gender?: string | null;
-        callerName?: string | null;
-        address?: string | null;
+         callerName?: string | null;
+         address?: string | null;
+         severityLevel?: SeverityLevel | null;
+         severityTags?: string[];
+         severityFactors?: string[];
+         severityCategory?: string | null;
+         severityCaseReference?: string | null;
+
       };
     }
   | { type: "intake_complete"; docketId: string; user: SessionUser }
+  | { type: "voice_authenticated"; user: SessionUser }
   | { type: "error"; message: string }
   | { type: "system"; text: string };
 

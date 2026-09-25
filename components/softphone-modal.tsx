@@ -96,7 +96,7 @@ export function SoftphoneModal({
   const [dialedNumber, setDialedNumber] = useState("16699");
   const [callDuration, setCallDuration] = useState(0);
   const [activeTab, setActiveTab] = useState<"docket" | "transcript" | "tools">("docket");
-  const transcriptEndRef = useRef<HTMLDivElement | null>(null);
+  const transcriptScrollRef = useRef<HTMLDivElement | null>(null);
 
   const isCallActive =
     phase === "listening" ||
@@ -122,7 +122,9 @@ export function SoftphoneModal({
 
   // Auto scroll transcript
   useEffect(() => {
-    transcriptEndRef.current?.scrollIntoView({ behavior: "smooth", block: "nearest" });
+    const container = transcriptScrollRef.current;
+    if (!container) return;
+    container.scrollTo({ top: container.scrollHeight, behavior: "smooth" });
   }, [transcript]);
 
   const handleDialKeyPress = (key: string) => {
@@ -133,7 +135,6 @@ export function SoftphoneModal({
       }
     } else {
       // In-call Smart IVR DTMF selection
-      setActiveTab("transcript");
       let dtmfText = key;
       if (intakeStep === "problem") {
         if (key === "1") dtmfText = "১";
@@ -185,7 +186,7 @@ export function SoftphoneModal({
 
   return (
     <div
-      className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-5 bg-slate-950/70 backdrop-blur-md overflow-y-auto animate-fade-in"
+      className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-5 bg-slate-950/70 backdrop-blur-md overflow-y-auto overscroll-contain animate-fade-in"
       onClick={(e) => {
         // Prevent background click from suddenly dropping active calls
         if (e.target === e.currentTarget) {
@@ -268,7 +269,7 @@ export function SoftphoneModal({
         </div>
 
         {/* Softphone Dialog Main Workspace */}
-         <div className="flex-1 overflow-y-auto p-3 sm:p-6 grid grid-cols-1 md:grid-cols-12 gap-4 sm:gap-5 bg-slate-50/70">
+         <div className="flex-1 min-h-0 overflow-y-auto overscroll-contain p-3 sm:p-6 grid grid-cols-1 md:grid-cols-12 gap-4 sm:gap-5 bg-slate-50/70 scroll-pb-4">
            {/* LEFT COLUMN: Dialpad & Voice Controls (5 cols) */}
            <div className="md:col-span-5 flex flex-col gap-4 min-w-0">
 
@@ -370,21 +371,24 @@ export function SoftphoneModal({
                     <span>আইনি অভিযোগ ও কেস নথিভুক্তি (Case Intake)</span>
                   </span>
                   <span className="text-[11px] font-bold text-emerald-800 bg-emerald-200/80 px-2 py-0.5 rounded-full">
-                    {intakeStep === "problem"
-                      ? "ধাপ ১: সমস্যা বর্ণনা"
-                      : intakeStep === "disability"
-                      ? "ধাপ ২: প্রতিবন্ধী সুবিধা"
-                      : intakeStep === "gender"
-                      ? "ধাপ ৩: লিঙ্গ"
-                      : intakeStep === "name"
-                      ? "ধাপ ৪: পূর্ণ নাম"
-                      : intakeStep === "address"
-                      ? "ধাপ ৫: জেলা ও ঠিকানা"
-                      : "নথিভুক্তি সম্পন্ন"}
+                     {intakeStep === "problem"
+                       ? "ধাপ ১: সমস্যা বর্ণনা"
+                       : intakeStep === "disability"
+                       ? "ধাপ ২: প্রতিবন্ধী সুবিধা"
+                       : intakeStep === "disability_type"
+                       ? "ধাপ ৩: প্রতিবন্ধকতার ধরন"
+                       : intakeStep === "gender"
+                       ? "ধাপ ৪: লিঙ্গ"
+                       : intakeStep === "name"
+                       ? "ধাপ ৫: পূর্ণ নাম"
+                       : intakeStep === "address"
+                       ? "ধাপ ৬: জেলা ও ঠিকানা"
+                       : "নথিভুক্তি সম্পন্ন"}
+
                   </span>
                 </div>
 
-                <div className="grid grid-cols-5 gap-1 text-center text-[10px] font-semibold">
+                <div className="grid grid-cols-6 gap-1 text-center text-[10px] font-semibold">
                   <div
                     className={`p-1.5 rounded-lg border ${
                       intakeStep === "problem"
@@ -396,27 +400,40 @@ export function SoftphoneModal({
                   >
                     ১. সমস্যা
                   </div>
-                  <div
-                    className={`p-1.5 rounded-lg border ${
-                      intakeStep === "disability"
-                        ? "bg-emerald-700 text-white border-emerald-800"
-                        : intakeData.hasDisability !== undefined && intakeData.hasDisability !== null
-                        ? "bg-emerald-100 text-emerald-900 border-emerald-300"
-                        : "bg-white text-slate-400 border-slate-200"
-                    }`}
-                  >
-                    ২. সুবিধা
-                  </div>
-                  <div
-                    className={`p-1.5 rounded-lg border ${
-                      intakeStep === "gender"
+                   <div
+                     className={`p-1.5 rounded-lg border ${
+                       intakeStep === "disability"
+                         ? "bg-emerald-700 text-white border-emerald-800"
+                         : intakeData.hasDisability !== undefined && intakeData.hasDisability !== null
+                         ? "bg-emerald-100 text-emerald-900 border-emerald-300"
+                         : "bg-white text-slate-400 border-slate-200"
+                     }`}
+                   >
+                     ২. সুবিধা
+                   </div>
+                   <div
+                     className={`p-1.5 rounded-lg border ${
+                       intakeStep === "disability_type"
+                         ? "bg-emerald-700 text-white border-emerald-800"
+                         : intakeData.disabilityType
+                         ? "bg-emerald-100 text-emerald-900 border-emerald-300"
+                         : "bg-white text-slate-400 border-slate-200"
+                     }`}
+                   >
+                     ৩. ধরন
+                   </div>
+                   <div
+                     className={`p-1.5 rounded-lg border ${
+                       intakeStep === "gender"
+
                         ? "bg-emerald-700 text-white border-emerald-800"
                         : intakeData.gender
                         ? "bg-emerald-100 text-emerald-900 border-emerald-300"
                         : "bg-white text-slate-400 border-slate-200"
                     }`}
                   >
-                    ৩. লিঙ্গ
+                     ৪. লিঙ্গ
+
                   </div>
                   <div
                     className={`p-1.5 rounded-lg border ${
@@ -427,7 +444,8 @@ export function SoftphoneModal({
                         : "bg-white text-slate-400 border-slate-200"
                     }`}
                   >
-                    ৪. নাম
+                     ৫. নাম
+
                   </div>
                   <div
                     className={`p-1.5 rounded-lg border ${
@@ -438,7 +456,8 @@ export function SoftphoneModal({
                         : "bg-white text-slate-400 border-slate-200"
                     }`}
                   >
-                    ৫. ঠিকানা
+                     ৬. ঠিকানা
+
                   </div>
                 </div>
 
@@ -446,10 +465,14 @@ export function SoftphoneModal({
                   {intakeStep === "problem" && (
                     <span>🎙️ আপনার সমস্যা মুখে বলুন। কথা বলা শেষ হলে ডায়ালপ্যাডের <strong>১</strong> চাপুন।</span>
                   )}
-                  {intakeStep === "disability" && (
-                    <span>🎙️ শারীরিক প্রতিবন্ধকতা আছে কি? মুখে <strong>হ্যাঁ/না</strong> বলুন অথবা কীপ্যাডে <strong>১ বা ২</strong> চাপুন।</span>
-                  )}
-                  {intakeStep === "gender" && (
+                   {intakeStep === "disability" && (
+                     <span>🎙️ শারীরিক বা বিশেষ প্রতিবন্ধকতা আছে কি? মুখে <strong>হ্যাঁ/না</strong> বলুন অথবা কীপ্যাডে <strong>১ বা ২</strong> চাপুন।</span>
+                   )}
+                   {intakeStep === "disability_type" && (
+                     <span>🎙️ কোন ধরনের প্রতিবন্ধকতা আছে? যেমন <strong>দৃষ্টি, শ্রবণ, চলাফেরা, বাক, মানসিক</strong> বা অন্য কিছু বলুন।</span>
+                   )}
+                   {intakeStep === "gender" && (
+
                     <span>🎙️ আপনার লিঙ্গ কী? মুখে <strong>পুরুষ/নারী</strong> বলুন অথবা কীপ্যাডে <strong>১ বা ২</strong> চাপুন।</span>
                   )}
                   {intakeStep === "name" && (
@@ -747,7 +770,7 @@ export function SoftphoneModal({
                   <span className="text-[10px] text-slate-500">রিয়েল-টাইম অডিও স্ট্রিম</span>
                 </div>
 
-                <div className="flex-1 overflow-y-auto space-y-3 pr-2 scrollbar-thin">
+                 <div ref={transcriptScrollRef} className="flex-1 overflow-y-auto overscroll-contain space-y-3 pr-2 scrollbar-thin">
                   {transcript.length === 0 ? (
                     <div className="h-full flex flex-col items-center justify-center text-center p-6 text-slate-400">
                       <span className="text-3xl mb-2">📞</span>
@@ -778,7 +801,8 @@ export function SoftphoneModal({
                       </div>
                     ))
                   )}
-                  <div ref={transcriptEndRef} />
+                   <div aria-hidden="true" />
+
                 </div>
               </div>
             )}

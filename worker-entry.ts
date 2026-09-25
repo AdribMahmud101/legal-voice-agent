@@ -2,6 +2,7 @@
 import nextWorker from "./.open-next/worker.js";
 import { searchUniversalInquiries, getUniversalGeneralKnowledgeBlock } from "./lib/agent/knowledge/universal-inquiries_v2";
 import { lookupStatute } from "./lib/agent/knowledge/statutes";
+import { getSeverityClassificationKnowledgeBlock } from "./lib/agent/knowledge/severity-classification";
 
 /**
  * Soniox Real-Time STT WebSocket proxy: injects the server-side SONIOX_API_KEY
@@ -381,6 +382,10 @@ async function handleLlmRequest(request: Request, env: any): Promise<Response> {
   }
 
   const messages = body.messages || [];
+  const authenticatedUser = body.authenticatedUser || null;
+  const authenticatedContext = authenticatedUser
+    ? `\n[Voice login / Authenticated citizen]:\n- নাম: ${authenticatedUser.displayName}\n- ব্যবহারকারী আইডি: ${authenticatedUser.id}\n- ভূমিকা: ${authenticatedUser.role}\n- কলার তার আবেদন বা কেসের অবস্থা জানতে চাইলে সংক্ষিপ্ত তথ্য দিন; নতুন সমস্যা হলে সমস্যা ইনটেকে যান।`
+    : "";
   const groqApiKey = env.GROQ_API_KEY || "";
   const model = env.LLM_MODEL || "openai/gpt-oss-120b";
 
@@ -431,10 +436,14 @@ ${matched
 ২. কলারের প্রশ্নের সরাসরি ১ থেকে ৩ বাক্যে সহায়ক ও সংক্ষিপ্ত উত্তর দিন।
 ৩. প্রাসঙ্গিক হলে সর্বোচ্চ একটি আইনের নাম এবং একটি ধারা উল্লেখ করুন; পুরো আইন, সব ধারা বা দীর্ঘ তালিকা পড়বেন না। তথ্য নিশ্চিত না হলে স্পষ্টভাবে বলুন যে DLAO/আইনজীবীর যাচাই প্রয়োজন।
 ৪. কোনো বুলেট পয়েন্ট, তারকা (*), হ্যাশ (#) বা জটিল তালিকা ব্যবহার করবেন না। টেক্সটটি সরাসরি স্পিচ সিনথেসাইজার (TTS) দিয়ে পাঠ করা হবে।
-৫. কলারকে আশ্বস্ত করুন এবং স্পষ্ট ও সঠিক তথ্য দিন।
+  ৫. কলারকে আশ্বস্ত করুন এবং স্পষ্ট ও সঠিক তথ্য দিন।
+  ৬. সাধারণ তথ্যের পথে ব্যক্তিগত সমস্যা, নিরাপত্তা ঝুঁকি, সহিংসতা, আটকে রাখা, সাইবার ব্ল্যাকমেইল, জমি দখল, বেতন বা পারিবারিক বাধার তথ্য জানালে severity knowledge base অনুযায়ী বিষয়টি স্বীকার করে আইনি সহায়তা আবেদন ও অভিযোগ নথিভুক্ত করতে চান কি না জিজ্ঞেস করুন। ট্যাগ বা স্কোর কথোপকথনে প্রকাশ করবেন না।
 
 
 ${getUniversalGeneralKnowledgeBlock()}
+${getSeverityClassificationKnowledgeBlock()}
+${authenticatedContext}
+
 ${statuteContext}
 ${runtimeInquiryBlock}
 `;
@@ -556,11 +565,24 @@ function authCookie(token: string, expiresAt: Date): string {
   return `${AUTH_COOKIE_NAME}=${token}; Path=/; HttpOnly; Secure; SameSite=Lax; Max-Age=${AUTH_SESSION_TTL_SECONDS}; Expires=${expiresAt.toUTCString()}`;
 }
 
+function clearAuthCookie(): string {
+  return `${AUTH_COOKIE_NAME}=; Path=/; HttpOnly; Secure; SameSite=Lax; Max-Age=0; Expires=Thu, 01 Jan 1970 00:00:00 GMT`;
+}
+
 async function hashAuthToken(token: string): Promise<string> {
   const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(token));
   return Array.from(new Uint8Array(digest))
     .map((byte) => byte.toString(16).padStart(2, "0"))
     .join("");
+}
+
+async function hashVoicePin(pin: string): Promise<string> {
+  return hashAuthToken(pin);
+}
+
+function normalizeVoicePin(input: unknown): string | null {
+  const raw = String(input ?? "").replace(/[০-৯]/g, (digit) => String("০১২৩৪৫৬৭৮৯".indexOf(digit))).trim();
+  return /^\d{4}$/.test(raw) ? raw : null;
 }
 
 async function getAuthenticatedUser(request: Request, db: any): Promise<any | null> {
@@ -592,6 +614,21 @@ async function handleAuthSessionRequest(request: Request, env: any): Promise<Res
   return jsonResponse({ ok: true, user: await getAuthenticatedUser(request, env.DB) });
 }
 
+async function handleAuthLogoutRequest(request: Request, env: any): Promise<Response> {
+  if (request.method !== "POST") return jsonResponse({ ok: false, error: "Method not allowed" }, 405);
+  const token = readAuthCookie(request);
+  if (token && env.DB) {
+    try {
+      await env.DB
+        .prepare("UPDATE auth_sessions SET revoked_at = CURRENT_TIMESTAMP WHERE token_hash = ?")
+        .bind(await hashAuthToken(token))
+        .run();
+    } catch {
+    }
+  }
+  return jsonResponse({ ok: true }, 200, { "Set-Cookie": clearAuthCookie() });
+}
+
 async function handleRoleCompleteRequest(request: Request, env: any): Promise<Response> {
   if (request.method !== "POST") return jsonResponse({ ok: false, error: "Method not allowed" }, 405);
   const db = env.DB;
@@ -601,8 +638,10 @@ async function handleRoleCompleteRequest(request: Request, env: any): Promise<Re
     const body = (await request.json()) as Record<string, any>;
     const voiceSessionId = String(body.voiceSessionId || "").trim();
     const docketId = String(body.docketId || "").trim();
-    const displayName = String(body.displayName || "").trim();
-    if (!voiceSessionId || !docketId || !displayName) {
+     const displayName = String(body.displayName || "").trim();
+     const voicePin = normalizeVoicePin(body.pin);
+     if (!voiceSessionId || !docketId || !displayName) {
+
       return jsonResponse({ ok: false, error: "voiceSessionId, docketId, and displayName are required" }, 400);
     }
 
@@ -625,24 +664,33 @@ async function handleRoleCompleteRequest(request: Request, env: any): Promise<Re
       await db.batch([
         db
           .prepare(
-            `INSERT INTO users (id, role, display_name, phone, status, verification_status, is_mock)
-             VALUES (?, 'citizen', ?, ?, 'active', ?, 0)`,
+            `INSERT INTO users (id, role, display_name, phone, status, verification_status, pin_hash, is_mock)
+             VALUES (?, 'citizen', ?, ?, 'active', ?, ?, 0)`,
           )
-          .bind(userId, displayName, body.phone ? String(body.phone) : null, body.phone ? "pending" : "unverified"),
+          .bind(
+            userId,
+            displayName,
+            body.phone ? String(body.phone) : null,
+            body.phone ? "pending" : "unverified",
+            voicePin ? await hashVoicePin(voicePin) : null,
+          ),
         db
           .prepare(
             `INSERT INTO cases
-             (id, docket_id, citizen_user_id, voice_session_id, problem, has_disability, gender, district, thana, category, status, is_demo)
-             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'submitted', 0)`,
+              (id, docket_id, citizen_user_id, voice_session_id, problem, has_disability, disability_type, gender, district, thana, category, status, is_demo)
+              VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'submitted', 0)`,
+
           )
           .bind(
             `CASE-${crypto.randomUUID()}`,
             docketId,
             userId,
             voiceSessionId,
-            String(body.problem || ""),
-            body.hasDisability === true || body.hasDisability === 1 ? 1 : body.hasDisability === false || body.hasDisability === 0 ? 0 : null,
-            body.gender ? String(body.gender) : null,
+             String(body.problem || ""),
+             body.hasDisability === true || body.hasDisability === 1 ? 1 : body.hasDisability === false || body.hasDisability === 0 ? 0 : null,
+             body.disabilityType ? String(body.disabilityType) : null,
+             body.gender ? String(body.gender) : null,
+
             body.district ? String(body.district) : null,
             body.thana ? String(body.thana) : null,
             body.category ? String(body.category) : null,
@@ -655,6 +703,12 @@ async function handleRoleCompleteRequest(request: Request, env: any): Promise<Re
           .bind(tokenHash, userId, expiresAt.toISOString()),
       ]);
     } else {
+      if (voicePin) {
+        await db
+          .prepare("UPDATE users SET pin_hash = ? WHERE id = ?")
+          .bind(await hashVoicePin(voicePin), userId)
+          .run();
+      }
       await db
         .prepare(
           `INSERT INTO auth_sessions (token_hash, user_id, expires_at)
@@ -688,6 +742,148 @@ async function handleRoleCompleteRequest(request: Request, env: any): Promise<Re
       200,
       { "Set-Cookie": authCookie(token, expiresAt) },
     );
+  } catch (error) {
+    return jsonResponse({ ok: false, error: error instanceof Error ? error.message : String(error) }, 500);
+  }
+}
+
+async function handleVoiceLoginRequest(request: Request, env: any): Promise<Response> {
+  if (request.method !== "POST") return jsonResponse({ ok: false, error: "Method not allowed" }, 405);
+  if (!env.DB) return jsonResponse({ ok: false, error: "Database unavailable" }, 503);
+
+  try {
+    const body = (await request.json()) as Record<string, any>;
+    const pin = normalizeVoicePin(body.pin);
+    const displayName = String(body.displayName || "").trim();
+    if (!pin) return jsonResponse({ ok: false, error: "A four-digit PIN is required" }, 400);
+
+    const pinHash = await hashVoicePin(pin);
+    const query = displayName
+      ? `SELECT id, role, display_name, status, verification_status, is_mock
+         FROM users
+         WHERE role = 'citizen' AND status = 'active' AND pin_hash = ? AND display_name LIKE ?
+         LIMIT 1`
+      : `SELECT id, role, display_name, status, verification_status, is_mock
+         FROM users
+         WHERE role = 'citizen' AND status = 'active' AND pin_hash = ?
+         LIMIT 2`;
+    const { results } = await env.DB
+      .prepare(query)
+      .bind(...(displayName ? [pinHash, `%${displayName}%`] : [pinHash]))
+      .all();
+    const rows = results as any[];
+    if (rows.length === 0) return jsonResponse({ ok: false, error: "PIN or name was not recognized" }, 401);
+    if (!displayName && rows.length > 1) {
+      return jsonResponse({ ok: false, requiresName: true, error: "Please confirm your name" }, 409);
+    }
+
+    const user = rows[0];
+    const token = `sess-${crypto.randomUUID()}`;
+    const expiresAt = new Date(Date.now() + AUTH_SESSION_TTL_SECONDS * 1000);
+    await env.DB
+      .prepare("INSERT INTO auth_sessions (token_hash, user_id, expires_at) VALUES (?, ?, ?)")
+      .bind(await hashAuthToken(token), user.id, expiresAt.toISOString())
+      .run();
+
+    return jsonResponse(
+      {
+        ok: true,
+        user: {
+          id: user.id,
+          displayName: user.display_name,
+          role: user.role,
+          status: user.status,
+          verificationStatus: user.verification_status,
+          isMock: Boolean(user.is_mock),
+        },
+      },
+      200,
+      { "Set-Cookie": authCookie(token, expiresAt) },
+    );
+  } catch (error) {
+    return jsonResponse({ ok: false, error: error instanceof Error ? error.message : String(error) }, 500);
+  }
+}
+
+async function handleVoiceCasesRequest(request: Request, env: any): Promise<Response> {
+  if (request.method !== "GET") return jsonResponse({ ok: false, error: "Method not allowed" }, 405);
+  const user = await getAuthenticatedUser(request, env.DB);
+  if (!user || user.role !== "citizen") return jsonResponse({ ok: false, error: "Unauthorized" }, 401);
+  if (!env.DB) return jsonResponse({ ok: false, error: "Database unavailable" }, 503);
+
+  try {
+    const { results } = await env.DB
+      .prepare(
+        `SELECT id, docket_id, problem, category, district, thana, status, created_at, updated_at
+         FROM cases WHERE citizen_user_id = ? ORDER BY created_at DESC LIMIT 10`,
+      )
+      .bind(user.id)
+      .all();
+    return jsonResponse({
+      ok: true,
+      cases: (results as any[]).map((row) => ({
+        id: row.id,
+        docketId: row.docket_id,
+        problem: row.problem,
+        category: row.category,
+        district: row.district,
+        thana: row.thana,
+        status: row.status,
+        createdAt: row.created_at,
+        updatedAt: row.updated_at,
+      })),
+    });
+  } catch (error) {
+    return jsonResponse({ ok: false, error: error instanceof Error ? error.message : String(error) }, 500);
+  }
+}
+
+async function handleRecordingUploadRequest(request: Request, env: any): Promise<Response> {
+  if (request.method !== "POST") return jsonResponse({ ok: false, error: "Method not allowed" }, 405);
+  if (!env.DB || !env.CALL_RECORDINGS_R2) {
+    return jsonResponse({ ok: false, error: "Recording storage is not configured" }, 503);
+  }
+
+  try {
+    const formData = await request.formData();
+    const file = formData.get("file");
+    const voiceSessionId = String(formData.get("voiceSessionId") || "").trim();
+    const docketId = String(formData.get("docketId") || "").trim() || null;
+    const durationMs = Math.max(0, Number(formData.get("durationMs") || 0));
+    const user = await getAuthenticatedUser(request, env.DB);
+
+    if (!file || typeof file === "string" || !voiceSessionId) {
+      return jsonResponse({ ok: false, error: "Recording file and voice session are required" }, 400);
+    }
+    if (docketId && !user) {
+      return jsonResponse({ ok: false, error: "Authenticated citizen session required" }, 401);
+    }
+    if (file.size <= 0 || file.size > 50 * 1024 * 1024) {
+      return jsonResponse({ ok: false, error: "Recording must be between 1 byte and 50 MB" }, 400);
+    }
+
+    const contentType = file.type || "audio/webm";
+    if (!contentType.startsWith("audio/")) {
+      return jsonResponse({ ok: false, error: "Only audio recordings are accepted" }, 415);
+    }
+    const safeVoiceSessionId = voiceSessionId.replace(/[^a-zA-Z0-9_-]/g, "_");
+    const recordingId = `rec-${safeVoiceSessionId}`;
+    const extension = contentType.includes("mp4") ? "mp4" : contentType.includes("ogg") ? "ogg" : "webm";
+    const objectKey = `recordings/${safeVoiceSessionId}.${extension}`;
+
+    await env.CALL_RECORDINGS_R2.put(objectKey, file.stream(), {
+      httpMetadata: { contentType },
+    });
+    await env.DB
+      .prepare(
+        `INSERT OR REPLACE INTO call_recordings
+         (id, voice_session_id, docket_id, citizen_user_id, object_key, content_type, duration_ms)
+         VALUES (?, ?, ?, ?, ?, ?, ?)`,
+      )
+      .bind(recordingId, voiceSessionId, docketId, user?.id || null, objectKey, contentType, Math.round(durationMs))
+      .run();
+
+    return jsonResponse({ ok: true, recordingId, docketId, objectKey }, 201);
   } catch (error) {
     return jsonResponse({ ok: false, error: error instanceof Error ? error.message : String(error) }, 500);
   }
@@ -812,7 +1008,20 @@ export default {
     if (url.pathname === "/api/auth/session") {
       return handleAuthSessionRequest(request, env);
     }
-    if (url.pathname === "/api/roles/complete") {
+     if (url.pathname === "/api/auth/logout") {
+       return handleAuthLogoutRequest(request, env);
+     }
+     if (url.pathname === "/api/voice/login") {
+       return handleVoiceLoginRequest(request, env);
+     }
+     if (url.pathname === "/api/voice/cases") {
+       return handleVoiceCasesRequest(request, env);
+     }
+     if (url.pathname === "/api/recordings" && request.method === "POST") {
+       return handleRecordingUploadRequest(request, env);
+     }
+     if (url.pathname === "/api/roles/complete") {
+
       return handleRoleCompleteRequest(request, env);
     }
     if (url.pathname === "/api/citizens") {

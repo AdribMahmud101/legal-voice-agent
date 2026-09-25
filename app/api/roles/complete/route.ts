@@ -4,19 +4,31 @@ import { createLocalCitizenSession } from "@/lib/auth/local-session";
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
+async function hashPin(pin: string): Promise<string> {
+  const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(pin));
+  return Array.from(new Uint8Array(digest))
+    .map((byte) => byte.toString(16).padStart(2, "0"))
+    .join("");
+}
+
 export async function POST(request: Request) {
   try {
     const body = (await request.json()) as {
-      displayName?: string;
-      phone?: string | null;
-      voiceSessionId?: string;
+       displayName?: string;
+       phone?: string | null;
+       disabilityType?: string | null;
+       pin?: string;
+       voiceSessionId?: string;
+
       docketId?: string;
     };
     if (!body.displayName?.trim() || !body.voiceSessionId || !body.docketId) {
       return NextResponse.json({ ok: false, error: "displayName, voiceSessionId, and docketId are required" }, { status: 400 });
     }
 
-    const session = createLocalCitizenSession(body.displayName, body.phone ?? null, body.voiceSessionId);
+    const pin = typeof body.pin === "string" && /^\d{4}$/.test(body.pin) ? body.pin : null;
+    const pinHash = pin ? await hashPin(pin) : undefined;
+    const session = createLocalCitizenSession(body.displayName, body.phone ?? null, body.voiceSessionId, pinHash);
     const response = NextResponse.json({ ok: true, user: session.user, docketId: body.docketId });
     response.cookies.set("auth_session", session.token, {
       httpOnly: true,

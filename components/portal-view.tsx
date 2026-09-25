@@ -140,32 +140,42 @@ export function PortalView({ onOpenSoftphone, isCallActive, currentUser }: Porta
 
           {/* Action CTAs */}
            <div className="header-actions flex items-center gap-2.5 relative">
-              <div 
-                className="hidden sm:block relative"
-                onMouseEnter={() => setIsLoginDropdownOpen(true)}
-                onMouseLeave={() => setIsLoginDropdownOpen(false)}
-              >
-                <button
-                  className="min-h-10 items-center rounded border border-emerald-800 bg-white px-4 text-sm font-bold text-emerald-800 transition hover:bg-emerald-50 flex gap-1"
-                >
-                  লগইন
-                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M6 9l6 6 6-6"/></svg>
-                </button>
-                
-                {isLoginDropdownOpen && (
-                  <div className="absolute right-0 top-full mt-1 w-56 bg-white border border-slate-200 shadow-md rounded overflow-hidden z-50">
-                    <Link href="/login?tab=citizen" className="block px-4 py-2.5 text-sm font-semibold text-slate-800 hover:bg-slate-50 hover:text-emerald-800 border-b border-slate-100">
-                      নাগরিক লগইন
-                    </Link>
-                    <Link href="/login?tab=staff" className="block px-4 py-2.5 text-sm font-semibold text-slate-800 hover:bg-slate-50 hover:text-emerald-800 border-b border-slate-100">
-                      ডিএলএও (DLAO) লগইন
-                    </Link>
-                    <Link href="/login?tab=staff" className="block px-4 py-2.5 text-sm font-semibold text-slate-800 hover:bg-slate-50 hover:text-emerald-800">
-                      প্যানেল আইনজীবী লগইন
-                    </Link>
-                  </div>
-                )}
-              </div>
+             {currentUser?.role === "citizen" ? (
+               <Link
+                 href="/profile"
+                 className="hidden min-h-10 items-center rounded border border-emerald-800 bg-white px-4 text-sm font-bold text-emerald-800 transition hover:bg-emerald-50 sm:inline-flex"
+               >
+                 প্রোফাইল
+               </Link>
+             ) : (
+               <div
+                 className="hidden sm:block relative"
+                 onMouseEnter={() => setIsLoginDropdownOpen(true)}
+                 onMouseLeave={() => setIsLoginDropdownOpen(false)}
+               >
+                 <button
+                   className="min-h-10 items-center rounded border border-emerald-800 bg-white px-4 text-sm font-bold text-emerald-800 transition hover:bg-emerald-50 flex gap-1"
+                 >
+                   লগইন
+                   <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M6 9l6 6 6-6"/></svg>
+                 </button>
+
+                 {isLoginDropdownOpen && (
+                   <div className="absolute right-0 top-full mt-1 w-56 bg-white border border-slate-200 shadow-md rounded overflow-hidden z-50">
+                     <Link href="/login?tab=citizen" className="block px-4 py-2.5 text-sm font-semibold text-slate-800 hover:bg-slate-50 hover:text-emerald-800 border-b border-slate-100">
+                       নাগরিক লগইন
+                     </Link>
+                     <Link href="/login?tab=staff" className="block px-4 py-2.5 text-sm font-semibold text-slate-800 hover:bg-slate-50 hover:text-emerald-800 border-b border-slate-100">
+                       ডিএলএও (DLAO) লগইন
+                     </Link>
+                     <Link href="/login?tab=staff" className="block px-4 py-2.5 text-sm font-semibold text-slate-800 hover:bg-slate-50 hover:text-emerald-800">
+                       প্যানেল আইনজীবী লগইন
+                     </Link>
+                   </div>
+                 )}
+               </div>
+             )}
+
 
              {/* Direct Softphone Trigger Button */}
             <button
@@ -240,13 +250,24 @@ export function PortalView({ onOpenSoftphone, isCallActive, currentUser }: Porta
             >
               হোম পেজ
              </button>
-             <Link
-               href="/login"
-               onClick={() => setIsMobileMenuOpen(false)}
-               className="block w-full rounded-xl bg-emerald-50 py-2.5 text-left text-emerald-800"
-             >
-               লগইন / রেজিস্টার
-             </Link>
+              {currentUser?.role === "citizen" ? (
+                <Link
+                  href="/profile"
+                  onClick={() => setIsMobileMenuOpen(false)}
+                  className="block w-full rounded-xl bg-emerald-50 py-2.5 text-left text-emerald-800"
+                >
+                  প্রোফাইল
+                </Link>
+              ) : (
+                <Link
+                  href="/login"
+                  onClick={() => setIsMobileMenuOpen(false)}
+                  className="block w-full rounded-xl bg-emerald-50 py-2.5 text-left text-emerald-800"
+                >
+                  লগইন / রেজিস্টার
+                </Link>
+              )}
+
              <button
                onClick={() => {
                  setCurrentView("apply");

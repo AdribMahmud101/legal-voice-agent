@@ -17,6 +17,7 @@ export default function DlaoCaseDetail({ params }: { params: Promise<{ id: strin
   const [caseData, setCaseData] = useState<any>(null);
   const [loading, setLoading] = useState(true);
   const [updating, setUpdating] = useState(false);
+  const [recording, setRecording] = useState<{ id: string; durationMs: number; createdAt: string } | null>(null);
 
   // Form state
   const [assignedLawyer, setAssignedLawyer] = useState("");
@@ -32,6 +33,15 @@ export default function DlaoCaseDetail({ params }: { params: Promise<{ id: strin
         setAssignedLawyer(data.case.assignedLawyerId || "");
         setStatus(data.case.status);
         setDlaoNotes(data.case.dlaoNotes || "");
+        if (data.case.docketId) {
+          try {
+            const recordingResponse = await fetch(`/api/recordings?docketId=${encodeURIComponent(data.case.docketId)}`);
+            const recordingPayload = await recordingResponse.json().catch(() => null);
+            setRecording(recordingPayload?.recording || null);
+          } catch {
+            setRecording(null);
+          }
+        }
       }
     } finally {
       setLoading(false);
@@ -92,22 +102,41 @@ export default function DlaoCaseDetail({ params }: { params: Promise<{ id: strin
       <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "var(--space-xl)", alignItems: "start" }}>
         {/* Left Column: Details */}
         <div style={{ display: "flex", flexDirection: "column", gap: "var(--space-lg)" }}>
-          <Card>
-            <CardContent>
-              <h3 style={{ fontFamily: "var(--font-bn)", fontSize: "1.125rem", fontWeight: 700, marginBottom: "var(--space-md)" }}>ঘটনার বিবরণ</h3>
-              <p style={{ fontFamily: "var(--font-bn)", fontSize: "1rem", color: "var(--portal-text)", lineHeight: 1.6 }}>
-                {caseData.summary}
-              </p>
-              
-              <div style={{ marginTop: "var(--space-lg)", paddingTop: "var(--space-md)", borderTop: "1px solid var(--portal-border)" }}>
-                <p style={{ fontFamily: "var(--font-bn)", fontSize: "0.875rem", color: "var(--portal-text-secondary)" }}>ভয়েস ডকেট আইডি</p>
-                <p style={{ fontFamily: "var(--font-bn)", fontSize: "1rem", fontWeight: 600 }}>{caseData.docketId}</p>
-              </div>
-            </CardContent>
-          </Card>
-        </div>
+           <Card>
+             <CardContent>
+               <h3 style={{ fontFamily: "var(--font-bn)", fontSize: "1.125rem", fontWeight: 700, marginBottom: "var(--space-md)" }}>ঘটনার বিবরণ</h3>
+               <p style={{ fontFamily: "var(--font-bn)", fontSize: "1rem", color: "var(--portal-text)", lineHeight: 1.6 }}>
+                 {caseData.summary}
+               </p>
 
-        {/* Right Column: Actions */}
+               <div style={{ marginTop: "var(--space-lg)", paddingTop: "var(--space-md)", borderTop: "1px solid var(--portal-border)" }}>
+                 <p style={{ fontFamily: "var(--font-bn)", fontSize: "0.875rem", color: "var(--portal-text-secondary)" }}>ভয়েস ডকেট আইডি</p>
+                 <p style={{ fontFamily: "var(--font-bn)", fontSize: "1rem", fontWeight: 600 }}>{caseData.docketId}</p>
+               </div>
+             </CardContent>
+           </Card>
+           <Card>
+             <CardContent>
+               <h3 style={{ fontFamily: "var(--font-bn)", fontSize: "1.125rem", fontWeight: 700, marginBottom: "var(--space-md)" }}>কথোপকথন রেকর্ডিং</h3>
+               {recording ? (
+                 <div style={{ display: "flex", flexDirection: "column", gap: "var(--space-sm)" }}>
+                   <audio controls preload="metadata" src={`/api/recordings?recordingId=${encodeURIComponent(recording.id)}`} style={{ width: "100%" }} />
+                   <span style={{ fontFamily: "var(--font-bn)", fontSize: "0.75rem", color: "var(--portal-text-secondary)" }}>
+                     {Math.max(1, Math.round(recording.durationMs / 60000))} মিনিটের রেকর্ডিং · {new Date(recording.createdAt).toLocaleString("bn-BD")}
+                   </span>
+                 </div>
+               ) : (
+                 <p style={{ fontFamily: "var(--font-bn)", fontSize: "0.875rem", color: "var(--portal-text-secondary)" }}>
+                   এই আবেদনের জন্য রেকর্ডিং এখনও প্রসেস হচ্ছে বা সংরক্ষিত হয়নি।
+                 </p>
+               )}
+             </CardContent>
+           </Card>
+         </div>
+
+          {/* Right Column: Actions */}
+
+
         <div style={{ display: "flex", flexDirection: "column", gap: "var(--space-lg)" }}>
           <Card>
             <CardContent style={{ display: "flex", flexDirection: "column", gap: "var(--space-md)" }}>

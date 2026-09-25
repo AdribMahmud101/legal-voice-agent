@@ -9,6 +9,7 @@
  */
 
 import { createOpenAI } from "@ai-sdk/openai";
+import type { SessionUser } from "../../auth/roles";
 import { streamText, isStepCount, type ModelMessage } from "ai";
 import { createLegalAidTools } from "../tools/legal-tools";
 import { docketStore } from "../memory/docket-store";
@@ -16,6 +17,7 @@ import {
   getUniversalGeneralKnowledgeBlock,
   searchUniversalInquiries,
 } from "../knowledge/universal-inquiries_v2";
+import { getSeverityClassificationKnowledgeBlock } from "../knowledge/severity-classification";
 
 const groqClient = createOpenAI({
   baseURL: process.env.LLM_PROVIDER_URL || "https://api.groq.com/openai/v1",
@@ -33,6 +35,7 @@ export const LEGAL_AGENT_SYSTEM_PROMPT = `
 আইভিআর (IVR) মেন্যু নির্দেশিকা:
 - কলার যদি '১' চাপেন বা সাধারণ তথ্যের বিকল্প নির্বাচন করেন: অতি সংক্ষেপে কেবল বলুন: "জি, সাধারণ তথ্যের জন্য আপনার প্রশ্নটি বলুন, আমি শুনছি।" কোনো দীর্ঘ ভূমিকা বা বিস্তারিত তালিকা দেবেন না, যাতে কলার অবিলম্বে তার সাধারণ প্রশ্নটি বলতে পারেন। এরপর কলার যখন নির্দিষ্ট প্রশ্ন করবেন, তখন সার্বজনীন তথ্যাবলী থেকে সঠিক ও সংক্ষিপ্ত উত্তর দিন।
 - কলার যদি '২' চাপেন বা সরাসরি কোনো অভিযোগ/আইনি সমস্যা বলেন: অতি সংক্ষেপে বলুন: "জি, আপনার আইনি অভিযোগটি বলুন, আপনার নাম ও জেলা কী?" এবং কেস ডকেট তৈরির পদক্ষেপ নিন।
+- কলার সাধারণ তথ্যের পথে ব্যক্তিগত সমস্যা, নিরাপত্তা ঝুঁকি, সহিংসতা, আটকে রাখা, সাইবার ব্ল্যাকমেইল, জমি দখল, বেতন বা পারিবারিক বাধার তথ্য জানালে severity knowledge base অনুযায়ী বিষয়টি স্বীকার করে প্রয়োজন হলে আইনি সহায়তা আবেদন ও অভিযোগ নথিভুক্ত করতে চান কি না জিজ্ঞেস করুন। ট্যাগ বা স্কোর কথোপকথনে প্রকাশ করবেন না এবং সিদ্ধান্ত নিজে চূড়ান্ত করবেন না।
 
 
 আপনার দায়িত্ব:
@@ -53,9 +56,11 @@ export const LEGAL_AGENT_SYSTEM_PROMPT = `
 export async function runLegalAgentSession({
   sessionId,
   messages,
+  authenticatedUser = null,
 }: {
   sessionId: string;
   messages: ModelMessage[];
+  authenticatedUser?: SessionUser | null;
 }) {
   const modelName = process.env.LLM_MODEL || "openai/gpt-oss-120b";
   const tools = createLegalAidTools(sessionId);
@@ -93,6 +98,10 @@ ${matchedInquiries
 
   const universalGeneralKnowledge = getUniversalGeneralKnowledgeBlock();
 
+  const authenticatedContext = authenticatedUser
+    ? `\n[Voice login / Authenticated citizen]:\n- নাম: ${authenticatedUser.displayName}\n- ব্যবহারকারী আইডি: ${authenticatedUser.id}\n- ভূমিকা: ${authenticatedUser.role}\n- ব্যবহারকারী চাইলে তার আবেদন বা কেসের অবস্থা জানতে পারে; নতুন সমস্যা থাকলে সমস্যা ইনটেকে যান।`
+    : "";
+
   // Augment system prompt with current working docket context and runtime injected universal inquiries
   const dynamicContext = `
 [বর্তমান ডকেট মেমোরি / Current Docket State]:
@@ -106,7 +115,7 @@ ${matchedInquiries
 
   return streamText({
     model: groqClient.chat(modelName),
-    system: `${LEGAL_AGENT_SYSTEM_PROMPT}\n${universalGeneralKnowledge}\n${dynamicContext}\n${runtimeInquiryBlock}`,
+    system: `${LEGAL_AGENT_SYSTEM_PROMPT}\n${universalGeneralKnowledge}\n${getSeverityClassificationKnowledgeBlock()}${authenticatedContext}\n${dynamicContext}\n${runtimeInquiryBlock}`,
     messages,
     tools,
     stopWhen: isStepCount(4),

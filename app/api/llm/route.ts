@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { runLegalAgentSession } from "@/lib/agent/core/agent-engine";
 import { type ModelMessage } from "ai";
+import type { SessionUser } from "@/lib/auth/roles";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -15,13 +16,16 @@ export const maxDuration = 300;
 export async function POST(req: Request) {
   try {
     const body = await req.json();
-    const sessionId = (body.sessionId as string) || "session-default";
-    const messages = (body.messages as ModelMessage[]) || [];
+     const sessionId = (body.sessionId as string) || "session-default";
+     const messages = (body.messages as ModelMessage[]) || [];
+     const authenticatedUser = (body.authenticatedUser as SessionUser | null) || null;
 
-    const agentStream = await runLegalAgentSession({
-      sessionId,
-      messages,
-    });
+     const agentStream = await runLegalAgentSession({
+       sessionId,
+       messages,
+       authenticatedUser,
+     });
+
 
     const encoder = new TextEncoder();
     const stream = new ReadableStream({

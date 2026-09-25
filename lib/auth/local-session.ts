@@ -8,6 +8,7 @@ interface LocalSessionRecord {
 interface LocalAuthStore {
   sessions: Map<string, LocalSessionRecord>;
   intakes: Map<string, LocalSessionRecord & { token: string }>;
+  pinRecords: Map<string, LocalSessionRecord>;
 }
 
 const globalAuth = globalThis as typeof globalThis & {
@@ -16,7 +17,7 @@ const globalAuth = globalThis as typeof globalThis & {
 
 function getStore(): LocalAuthStore {
   if (!globalAuth.__legalVoiceAuthStore) {
-    globalAuth.__legalVoiceAuthStore = { sessions: new Map(), intakes: new Map() };
+    globalAuth.__legalVoiceAuthStore = { sessions: new Map(), intakes: new Map(), pinRecords: new Map() };
   }
   return globalAuth.__legalVoiceAuthStore;
 }
@@ -25,6 +26,7 @@ export function createLocalCitizenSession(
   displayName: string,
   phone: string | null,
   intakeId?: string,
+  pinHash?: string,
 ): {
   user: SessionUser;
   token: string;
@@ -33,6 +35,7 @@ export function createLocalCitizenSession(
   if (intakeId) {
     const existing = getStore().intakes.get(intakeId);
     if (existing) {
+      if (pinHash) getStore().pinRecords.set(pinHash, existing);
       return { user: existing.user, token: existing.token, expiresAt: new Date(existing.expiresAt) };
     }
   }
@@ -50,8 +53,29 @@ export function createLocalCitizenSession(
   };
   const record = { user, expiresAt: expiresAt.getTime() };
   getStore().sessions.set(token, record);
+  if (pinHash) getStore().pinRecords.set(pinHash, record);
   if (intakeId) getStore().intakes.set(intakeId, { ...record, token });
   return { user, token, expiresAt };
+}
+
+export function createLocalSessionForUser(user: SessionUser): {
+  user: SessionUser;
+  token: string;
+  expiresAt: Date;
+} {
+  const token = `local_citizen_${crypto.randomUUID()}`;
+  const expiresAt = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000);
+  getStore().sessions.set(token, { user, expiresAt: expiresAt.getTime() });
+  return { user, token, expiresAt };
+}
+
+export function getLocalUserByPin(pinHash: string): SessionUser | null {
+  const record = getStore().pinRecords.get(pinHash);
+  if (!record || record.expiresAt <= Date.now()) {
+    if (record) getStore().pinRecords.delete(pinHash);
+    return null;
+  }
+  return record.user;
 }
 
 export function createLocalStaffSession(
@@ -79,4 +103,8 @@ export function getLocalSessionUser(token: string | undefined): SessionUser | nu
     return null;
   }
   return record.user;
+}
+
+export function clearLocalSession(token: string | undefined): void {
+  if (token) getStore().sessions.delete(token);
 }
