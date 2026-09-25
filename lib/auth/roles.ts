@@ -1,8 +1,8 @@
 export const APP_ROLES = [
   "citizen",
-  "dlao_officer",
   "chief_legal_aid_officer",
   "metropolitan_legal_aid_officer",
+  "dlao_officer",
   "special_mediator",
   "paralegal",
   "udc_entrepreneur",
@@ -24,9 +24,9 @@ export interface SessionUser {
 
 export const ROLE_LABELS: Record<AppRole, string> = {
   citizen: "নাগরিক",
-  dlao_officer: "জেলা লিগ্যাল এইড অফিসার",
   chief_legal_aid_officer: "চিফ লিগ্যাল এইড অফিসার",
-  metropolitan_legal_aid_officer: "মেট্রোপলিটান লিগ্যাল এইড অফিসার",
+  metropolitan_legal_aid_officer: "মেট্রোপলিটান",
+  dlao_officer: "জেলা লিগ্যাল এইড অফিসার",
   special_mediator: "বিশেষ মধ্যস্থতাকারী",
   paralegal: "প্যারালিগ্যাল",
   udc_entrepreneur: "ইউডিসি উদ্যোক্তা",
@@ -34,12 +34,6 @@ export const ROLE_LABELS: Record<AppRole, string> = {
 };
 
 export const MOCK_ROLE_IDENTITIES: Record<StaffRole, Omit<SessionUser, "id" | "isMock">> = {
-  dlao_officer: {
-    displayName: "মো. করিম (মক)",
-    role: "dlao_officer",
-    status: "active",
-    verificationStatus: "verified",
-  },
   chief_legal_aid_officer: {
     displayName: "সাব্বির হাসান (মক)",
     role: "chief_legal_aid_officer",
@@ -49,6 +43,12 @@ export const MOCK_ROLE_IDENTITIES: Record<StaffRole, Omit<SessionUser, "id" | "i
   metropolitan_legal_aid_officer: {
     displayName: "নাজমা সুলতানা (মক)",
     role: "metropolitan_legal_aid_officer",
+    status: "active",
+    verificationStatus: "verified",
+  },
+  dlao_officer: {
+    displayName: "মো. করিম (মক)",
+    role: "dlao_officer",
     status: "active",
     verificationStatus: "verified",
   },

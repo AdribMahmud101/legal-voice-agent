@@ -23,6 +23,10 @@ export function proxy(request: NextRequest) {
     return NextResponse.redirect(new URL("/login", request.url));
   }
 
+  if (token.startsWith("sess-")) {
+    return NextResponse.next();
+  }
+
   // Parse role from our demo token format: local_{role}_{uuid}
   let userRole = "";
   if (token.startsWith("local_")) {

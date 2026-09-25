@@ -20,7 +20,8 @@ export async function POST(request: Request) {
        pin?: string;
        voiceSessionId?: string;
 
-      docketId?: string;
+       docketId?: string;
+       applicationId?: string;
     };
     if (!body.displayName?.trim() || !body.voiceSessionId || !body.docketId) {
       return NextResponse.json({ ok: false, error: "displayName, voiceSessionId, and docketId are required" }, { status: 400 });
@@ -28,8 +29,15 @@ export async function POST(request: Request) {
 
     const pin = typeof body.pin === "string" && /^\d{4}$/.test(body.pin) ? body.pin : null;
     const pinHash = pin ? await hashPin(pin) : undefined;
-    const session = createLocalCitizenSession(body.displayName, body.phone ?? null, body.voiceSessionId, pinHash);
-    const response = NextResponse.json({ ok: true, user: session.user, docketId: body.docketId });
+     const session = createLocalCitizenSession(body.displayName, body.phone ?? null, body.voiceSessionId, pinHash);
+     const applicationId = body.applicationId || body.docketId.replace(/^DLAS-/, "APP-");
+     const response = NextResponse.json({
+       ok: true,
+       user: session.user,
+       docketId: body.docketId,
+       applicationId,
+       applicationTime: new Date().toISOString(),
+     });
     response.cookies.set("auth_session", session.token, {
       httpOnly: true,
       secure: process.env.NODE_ENV === "production",

@@ -1,93 +1,110 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
-import { DlaoShell } from "@/lib/ui/shell/DlaoShell";
-import { Card, CardContent } from "@/lib/ui/components/Card";
-import { StatusBadge } from "@/lib/ui/components/StatusBadge";
-import { EmptyState } from "@/lib/ui/components/EmptyState";
-import { getStatusVariant, getStatusLabel } from "@/lib/data/case-store";
+import { DlaoShell, type DlaoTab } from "@/lib/ui/shell/DlaoShell";
+import type { PortalCase } from "@/lib/data/case-projection";
+
+const SLA_DAYS = 65;
+
+function getAgeInDays(applicationTime: string): number {
+  const timestamp = new Date(applicationTime).getTime();
+  if (!Number.isFinite(timestamp)) return 0;
+  return Math.max(0, Math.floor((Date.now() - timestamp) / 86_400_000));
+}
+
+function getSlaState(applicationTime: string): "overdue" | "near" | "normal" {
+  const age = getAgeInDays(applicationTime);
+  if (age > SLA_DAYS) return "overdue";
+  if (age >= SLA_DAYS - 5) return "near";
+  return "normal";
+}
+
+function getSlaLabel(state: "overdue" | "near" | "normal"): string {
+  if (state === "overdue") return "সীমা পার";
+  if (state === "near") return "সীমার কাছাকাছি";
+  return "সীমার মধ্যে";
+}
+
+function getUrgencyLabel(urgency: string): string {
+  if (urgency === "emergency_danger") return "জরুরি";
+  if (urgency === "urgent") return "অগ্রাধিকার";
+  return "স্বাভাবিক";
+}
+
+function getPriorityLabel(priority: string): string {
+  if (priority === "urgent") return "অতি জরুরি";
+  if (priority === "high") return "উচ্চ অগ্রাধিকার";
+  return "স্বাভাবিক";
+}
+
+function getVisibleCases(cases: PortalCase[], tab: DlaoTab): PortalCase[] {
+  if (tab === "new") return cases.filter((item) => item.status === "pending_review");
+  if (tab === "cases") return cases.filter((item) => item.status !== "pending_review");
+  if (tab === "panel") return cases.filter((item) => item.status === "assigned");
+  if (tab === "applications") return cases;
+  return [];
+}
 
 export default function DlaoDashboard() {
-  const [cases, setCases] = useState<any[]>([]);
+  const [cases, setCases] = useState<PortalCase[]>([]);
+  const [activeTab, setActiveTab] = useState<DlaoTab>("applications");
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
     fetch("/api/portal/cases")
-      .then(res => res.json())
-      .then(data => {
-        if (data.ok) {
-          setCases(data.cases);
-        }
+      .then((response) => response.json())
+      .then((data) => {
+        if (data.ok) setCases(data.cases as PortalCase[]);
       })
       .finally(() => setLoading(false));
   }, []);
 
-  const pendingCount = cases.filter(c => c.status === "pending_review").length;
+  const pendingCount = cases.filter((item) => item.status === "pending_review").length;
+  const caseCount = cases.filter((item) => item.status !== "pending_review").length;
+  const panelCount = cases.filter((item) => item.status === "assigned").length;
+  const visibleCases = useMemo(() => getVisibleCases(cases, activeTab), [cases, activeTab]);
+  const overdueCount = cases.filter((item) => getSlaState(item.applicationTime) === "overdue").length;
+  const nearCount = cases.filter((item) => getSlaState(item.applicationTime) === "near").length;
 
   return (
-    <DlaoShell>
-      <div style={{ marginBottom: "var(--space-2xl)", display: "flex", justifyContent: "space-between", alignItems: "flex-end" }}>
-        <div>
-          <h1 style={{ fontFamily: "var(--font-bn)", fontSize: "1.75rem", fontWeight: 700, color: "var(--portal-text)", marginBottom: "var(--space-xs)" }}>
-            DLAO ড্যাশবোর্ড
-          </h1>
-          <p style={{ fontFamily: "var(--font-bn)", fontSize: "1rem", color: "var(--portal-text-secondary)" }}>
-            সকল অপেক্ষমাণ ও চলমান মামলার তালিকা।
-          </p>
-        </div>
-        <div style={{ textAlign: "right" }}>
-          <p style={{ fontFamily: "var(--font-bn)", fontSize: "0.875rem", color: "var(--portal-text-secondary)" }}>নতুন আবেদন</p>
-          <p style={{ fontFamily: "var(--font-bn)", fontSize: "2rem", fontWeight: 700, color: "var(--portal-accent-text)", lineHeight: 1 }}>{pendingCount}</p>
-        </div>
-      </div>
+    <DlaoShell activeTab={activeTab} onTabChange={setActiveTab} tabCounts={{ new: pendingCount, cases: caseCount, panel: panelCount }}>
+      <h1 className="dlao-page-heading">আবেদন</h1>
 
-      <div style={{ marginBottom: "var(--space-xl)", display: "flex", gap: "var(--space-md)" }}>
-        <Link href="/dlao/search" style={{ textDecoration: "none" }}>
-          <button style={{ padding: "var(--space-md) var(--space-xl)", borderRadius: "var(--radius-full)", border: "1px solid var(--portal-border)", backgroundColor: "var(--portal-white)", cursor: "pointer", fontFamily: "var(--font-bn)", fontWeight: 600, color: "var(--portal-text)", display: "flex", alignItems: "center", gap: "var(--space-sm)" }}>
-            <span>🔍</span> সার্চ করুন
-          </button>
-        </Link>
-      </div>
-      
-      {loading ? (
-        <div style={{ padding: "var(--space-xl)", textAlign: "center", color: "var(--portal-text-secondary)" }}>Loading...</div>
-      ) : cases.length === 0 ? (
-        <EmptyState 
-          title="কোনো মামলা পাওয়া যায়নি" 
-          description="বর্তমানে কোনো নতুন আবেদন বা চলমান মামলা নেই।" 
-        />
-      ) : (
-        <div style={{ display: "flex", flexDirection: "column", gap: "var(--space-md)" }}>
-          {cases.map((c) => (
-            <Link key={c.id} href={`/dlao/cases/${c.id}`} style={{ textDecoration: "none" }}>
-              <Card style={{ transition: "all var(--transition-fast)", borderLeft: c.status === "pending_review" ? "4px solid var(--portal-accent)" : undefined }}>
-                <CardContent style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                  <div>
-                    <div style={{ display: "flex", alignItems: "center", gap: "var(--space-md)", marginBottom: "var(--space-2xs)" }}>
-                      <h3 style={{ fontFamily: "var(--font-bn)", fontSize: "1.125rem", fontWeight: 700, color: "var(--portal-text)" }}>
-                        {c.id}
-                      </h3>
-                      <span style={{ fontFamily: "var(--font-bn)", fontSize: "0.875rem", color: "var(--portal-text-secondary)" }}>
-                        {c.citizenName} ({c.citizenPhone})
-                      </span>
-                    </div>
-                    <p style={{ fontFamily: "var(--font-bn)", fontSize: "0.875rem", color: "var(--portal-text-secondary)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", maxWidth: "500px" }}>
-                      {c.summary}
-                    </p>
-                  </div>
-                  <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-end", gap: "var(--space-xs)" }}>
-                    <StatusBadge variant={getStatusVariant(c.status)}>{getStatusLabel(c.status)}</StatusBadge>
-                    <span style={{ fontFamily: "var(--font-bn)", fontSize: "0.75rem", color: "var(--portal-text-subtle)" }}>
-                      {new Date(c.createdAt).toLocaleDateString('bn-BD')}
-                    </span>
-                  </div>
-                </CardContent>
-              </Card>
-            </Link>
-          ))}
+      <section className="dlao-sla-alert" aria-label="SLA summary">
+        <div className="dlao-sla-alert-header">
+          <span className="dlao-sla-alert-icon" aria-hidden="true">!</span>
+          <h2>{overdueCount}টি কেস SLA সীমা পার করেছে, {nearCount}টি সীমার কাছাকাছি</h2>
         </div>
-      )}
+        <p className="dlao-sla-alert-copy">নিচের প্রতিটি সময়সীমা একটি বাধ্যতামূলক মেট্রিক্স — কোনো SLA অতিক্রান্ত করা সহজ হবে না। এই পর্যবেক্ষণ করুন এবং পদক্ষেপ নিন।</p>
+        <div className="dlao-queue">
+          {loading ? (
+            <div className="dlao-queue-loading">আবেদনের তালিকা লোড হচ্ছে...</div>
+          ) : visibleCases.length === 0 ? (
+            <div className="dlao-queue-empty">এই অংশে কোনো আবেদন পাওয়া যায়নি।</div>
+          ) : (
+            visibleCases.map((item) => {
+              const slaState = getSlaState(item.applicationTime);
+              const age = getAgeInDays(item.applicationTime);
+              return (
+                <Link key={item.id} href={`/dlao/cases/${item.id}`} className={`dlao-queue-row ${slaState}`}>
+                  <div className="dlao-queue-content">
+                    <div className="dlao-queue-reference">{item.applicationId} · {item.docketId}</div>
+                     <h2 className="dlao-queue-name">{item.applicantName}</h2>
+                     {item.sourceLanguage !== "bn" && <p className="dlao-queue-meta">ভাষা: {item.sourceLanguage === "marma" ? "মারমা" : "চাকমা"} · অর্থ নিশ্চিত করা হয়েছে</p>}
+                     <p className="dlao-queue-meta">নতুন আবেদন পরিচালনা একেন্দ্রে জমা হয়েছে — {age} দিন (সীমা {SLA_DAYS} দিন)</p>
+                     <p className="dlao-queue-meta">জরুরি: {getUrgencyLabel(item.urgency)} · অগ্রাধিকার: {getPriorityLabel(item.priority)} · রেকর্ডিং: {item.recording ? "সংরক্ষিত" : "প্রক্রিয়াধীন"}</p>
+                  </div>
+                  <div className="dlao-queue-actions">
+                    <span className={`dlao-sla-label ${slaState}`}>{getSlaLabel(slaState)}</span>
+                    <span className="dlao-case-link">কেস দেখুন</span>
+                  </div>
+                </Link>
+              );
+            })
+          )}
+        </div>
+      </section>
     </DlaoShell>
   );
 }
