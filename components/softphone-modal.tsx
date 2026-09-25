@@ -141,11 +141,17 @@ export function SoftphoneModal({
       } else if (intakeStep === "disability") {
         if (key === "1") dtmfText = "১";
         else if (key === "2") dtmfText = "২";
-      } else if (intakeStep === "gender") {
-        if (key === "1") dtmfText = "১";
-        else if (key === "2") dtmfText = "২";
-        else if (key === "3") dtmfText = "৩";
-      } else {
+       } else if (intakeStep === "gender") {
+         if (key === "1") dtmfText = "১";
+         else if (key === "2") dtmfText = "২";
+         else if (key === "3") dtmfText = "৩";
+       } else if (intakeStep === "phone_primary") {
+         if (key === "1") dtmfText = "১";
+         else if (key === "2") dtmfText = "২";
+       } else if (intakeStep === "phone_number") {
+         dtmfText = key;
+       } else {
+
         dtmfText =
           key === "1"
             ? "১ (সাধারণ তথ্য ও নিয়মাবলী)"
@@ -371,24 +377,29 @@ export function SoftphoneModal({
                     <span>আইনি অভিযোগ ও কেস নথিভুক্তি (Case Intake)</span>
                   </span>
                   <span className="text-[11px] font-bold text-emerald-800 bg-emerald-200/80 px-2 py-0.5 rounded-full">
-                     {intakeStep === "problem"
-                       ? "ধাপ ১: সমস্যা বর্ণনা"
-                       : intakeStep === "disability"
-                       ? "ধাপ ২: প্রতিবন্ধী সুবিধা"
-                       : intakeStep === "disability_type"
-                       ? "ধাপ ৩: প্রতিবন্ধকতার ধরন"
-                       : intakeStep === "gender"
-                       ? "ধাপ ৪: লিঙ্গ"
-                       : intakeStep === "name"
-                       ? "ধাপ ৫: পূর্ণ নাম"
-                       : intakeStep === "address"
-                       ? "ধাপ ৬: জেলা ও ঠিকানা"
-                       : "নথিভুক্তি সম্পন্ন"}
+                      {intakeStep === "problem"
+                        ? "ধাপ ১: সমস্যা বর্ণনা"
+                        : intakeStep === "disability"
+                        ? "ধাপ ২: প্রতিবন্ধী সুবিধা"
+                        : intakeStep === "disability_type"
+                        ? "ধাপ ৩: প্রতিবন্ধকতার ধরন"
+                        : intakeStep === "gender"
+                        ? "ধাপ ৪: লিঙ্গ"
+                        : intakeStep === "name"
+                        ? "ধাপ ৫: পূর্ণ নাম"
+                        : intakeStep === "phone_primary"
+                        ? "ধাপ ৬: ফোন নম্বর নিশ্চিত করুন"
+                        : intakeStep === "phone_number"
+                        ? "ধাপ ৭: যোগাযোগের নম্বর"
+                        : intakeStep === "address"
+                        ? "ধাপ ৮: জেলা ও ঠিকানা"
+                        : "নথিভুক্তি সম্পন্ন"}
+
 
                   </span>
                 </div>
 
-                <div className="grid grid-cols-6 gap-1 text-center text-[10px] font-semibold">
+                <div className="grid grid-cols-4 sm:grid-cols-8 gap-1 text-center text-[10px] font-semibold">
                   <div
                     className={`p-1.5 rounded-lg border ${
                       intakeStep === "problem"
@@ -447,18 +458,40 @@ export function SoftphoneModal({
                      ৫. নাম
 
                   </div>
-                  <div
-                    className={`p-1.5 rounded-lg border ${
-                      intakeStep === "address"
-                        ? "bg-emerald-700 text-white border-emerald-800"
-                        : intakeData.address
-                        ? "bg-emerald-100 text-emerald-900 border-emerald-300"
-                        : "bg-white text-slate-400 border-slate-200"
-                    }`}
-                  >
-                     ৬. ঠিকানা
+                   <div
+                     className={`p-1.5 rounded-lg border ${
+                       intakeStep === "phone_primary"
+                         ? "bg-emerald-700 text-white border-emerald-800"
+                         : intakeData.phonePrimary !== undefined && intakeData.phonePrimary !== null
+                         ? "bg-emerald-100 text-emerald-900 border-emerald-300"
+                         : "bg-white text-slate-400 border-slate-200"
+                     }`}
+                   >
+                     ৬. ফোন
+                   </div>
+                   <div
+                     className={`p-1.5 rounded-lg border ${
+                       intakeStep === "phone_number"
+                         ? "bg-emerald-700 text-white border-emerald-800"
+                         : intakeData.phone
+                         ? "bg-emerald-100 text-emerald-900 border-emerald-300"
+                         : "bg-white text-slate-400 border-slate-200"
+                     }`}
+                   >
+                     ৭. নম্বর
+                   </div>
+                   <div
+                     className={`p-1.5 rounded-lg border ${
+                       intakeStep === "address"
+                         ? "bg-emerald-700 text-white border-emerald-800"
+                         : intakeData.address
+                         ? "bg-emerald-100 text-emerald-900 border-emerald-300"
+                         : "bg-white text-slate-400 border-slate-200"
+                     }`}
+                   >
+                     ৮. ঠিকানা
+                   </div>
 
-                  </div>
                 </div>
 
                 <div className="mt-2 text-[11px] text-emerald-950 bg-emerald-100/70 p-2 rounded-xl">
@@ -475,10 +508,17 @@ export function SoftphoneModal({
 
                     <span>🎙️ আপনার লিঙ্গ কী? মুখে <strong>পুরুষ/নারী</strong> বলুন অথবা কীপ্যাডে <strong>১ বা ২</strong> চাপুন।</span>
                   )}
-                  {intakeStep === "name" && (
-                    <span>🎙️ আপনার পূর্ণ নামটি স্পষ্ট করে বলুন।</span>
-                  )}
-                  {intakeStep === "address" && (
+                   {intakeStep === "name" && (
+                     <span>🎙️ আপনার পূর্ণ নামটি স্পষ্ট করে বলুন।</span>
+                   )}
+                   {intakeStep === "phone_primary" && (
+                     <span>🎙️ এই ফোন নম্বরটি কি আপনার প্রাথমিক নম্বর, যেখানে আমরা আপনাকে ফোন করতে পারি? <strong>হ্যাঁ/না</strong> বলুন।</span>
+                   )}
+                   {intakeStep === "phone_number" && (
+                     <span>🎙️ যোগাযোগের ১১ সংখ্যার ফোন নম্বর লিখুন। এখন: <strong>{intakeData.phoneDraft || "—"}</strong></span>
+                   )}
+                   {intakeStep === "address" && (
+
                     <span>🎙️ আপনার জেলা এবং এলাকার ঠিকানাটি বলুন।</span>
                   )}
                   {intakeStep === "complete" && (
@@ -513,18 +553,27 @@ export function SoftphoneModal({
                       stepBadge = "না";
                       isHighlighted = true;
                     }
-                  } else if (intakeStep === "gender") {
-                    if (key === "1") {
-                      stepBadge = "পুরুষ";
-                      isHighlighted = true;
-                    } else if (key === "2") {
-                      stepBadge = "নারী";
-                      isHighlighted = true;
-                    } else if (key === "3") {
-                      stepBadge = "অন্যান্য";
-                      isHighlighted = true;
-                    }
-                  }
+                   } else if (intakeStep === "gender") {
+                     if (key === "1") {
+                       stepBadge = "পুরুষ";
+                       isHighlighted = true;
+                     } else if (key === "2") {
+                       stepBadge = "নারী";
+                       isHighlighted = true;
+                     } else if (key === "3") {
+                       stepBadge = "অন্যান্য";
+                       isHighlighted = true;
+                     }
+                   } else if (intakeStep === "phone_primary") {
+                     if (key === "1") {
+                       stepBadge = "হ্যাঁ";
+                       isHighlighted = true;
+                     } else if (key === "2") {
+                       stepBadge = "না";
+                       isHighlighted = true;
+                     }
+                   }
+
 
                   return (
                     <button

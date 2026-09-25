@@ -84,10 +84,14 @@ export default function ProfilePage() {
               </div>
             </dl>
             <div className="mt-6 flex flex-wrap gap-3">
-              <Link href="/citizen" className="rounded-xl bg-emerald-700 px-4 py-3 text-sm font-semibold text-white hover:bg-emerald-800">
-                সাইটেন কেস ড্যাশবোর্ড
-              </Link>
-              <Link href="/" className="rounded-xl border border-slate-300 bg-white px-4 py-3 text-sm font-semibold text-slate-700 hover:bg-slate-50">
+               <Link href="/citizen" className="rounded-xl bg-emerald-700 px-4 py-3 text-sm font-semibold text-white hover:bg-emerald-800">
+                 সাইটেন কেস ড্যাশবোর্ড
+               </Link>
+               <Link href="/citizen/sms" className="rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm font-semibold text-emerald-800 hover:bg-emerald-100">
+                 সিমুলেটেড এসএমএস ইনবক্স
+               </Link>
+               <Link href="/" className="rounded-xl border border-slate-300 bg-white px-4 py-3 text-sm font-semibold text-slate-700 hover:bg-slate-50">
+
                 হোমে ফিরুন
               </Link>
             </div>

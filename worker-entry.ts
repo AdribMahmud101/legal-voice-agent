@@ -3,6 +3,7 @@ import nextWorker from "./.open-next/worker.js";
 import { searchUniversalInquiries, getUniversalGeneralKnowledgeBlock } from "./lib/agent/knowledge/universal-inquiries_v2";
 import { lookupStatute } from "./lib/agent/knowledge/statutes";
 import { getSeverityClassificationKnowledgeBlock } from "./lib/agent/knowledge/severity-classification";
+import { normalizeBangladeshPhone } from "./lib/phone/bangladesh-phone";
 
 /**
  * Soniox Real-Time STT WebSocket proxy: injects the server-side SONIOX_API_KEY
@@ -752,30 +753,36 @@ async function handleVoiceLoginRequest(request: Request, env: any): Promise<Resp
   if (!env.DB) return jsonResponse({ ok: false, error: "Database unavailable" }, 503);
 
   try {
-    const body = (await request.json()) as Record<string, any>;
-    const pin = normalizeVoicePin(body.pin);
-    const displayName = String(body.displayName || "").trim();
-    if (!pin) return jsonResponse({ ok: false, error: "A four-digit PIN is required" }, 400);
+     const body = (await request.json()) as Record<string, any>;
+     const pin = normalizeVoicePin(body.pin);
+     const phone = normalizeBangladeshPhone(String(body.phone || ""));
+     const displayName = String(body.displayName || "").trim();
+     if (!pin) return jsonResponse({ ok: false, error: "A four-digit PIN is required" }, 400);
+     if (body.phone && !/^01[3-9]\d{8}$/.test(phone)) {
+       return jsonResponse({ ok: false, error: "A valid 11-digit phone number is required" }, 400);
+     }
 
-    const pinHash = await hashVoicePin(pin);
-    const query = displayName
-      ? `SELECT id, role, display_name, status, verification_status, is_mock
-         FROM users
-         WHERE role = 'citizen' AND status = 'active' AND pin_hash = ? AND display_name LIKE ?
-         LIMIT 1`
-      : `SELECT id, role, display_name, status, verification_status, is_mock
-         FROM users
-         WHERE role = 'citizen' AND status = 'active' AND pin_hash = ?
-         LIMIT 2`;
-    const { results } = await env.DB
-      .prepare(query)
-      .bind(...(displayName ? [pinHash, `%${displayName}%`] : [pinHash]))
-      .all();
-    const rows = results as any[];
-    if (rows.length === 0) return jsonResponse({ ok: false, error: "PIN or name was not recognized" }, 401);
-    if (!displayName && rows.length > 1) {
-      return jsonResponse({ ok: false, requiresName: true, error: "Please confirm your name" }, 409);
-    }
+     const pinHash = await hashVoicePin(pin);
+     const filters = ["role = 'citizen'", "status = 'active'", "pin_hash = ?"];
+     const values: any[] = [pinHash];
+     if (displayName) {
+       filters.push("display_name LIKE ?");
+       values.push(`%${displayName}%`);
+     }
+     if (phone) {
+       filters.push("phone = ?");
+       values.push(phone);
+     }
+     const limit = displayName || phone ? 1 : 2;
+     const query = `SELECT id, role, display_name, status, verification_status, is_mock
+       FROM users WHERE ${filters.join(" AND ")} LIMIT ${limit}`;
+     const { results } = await env.DB.prepare(query).bind(...values).all();
+     const rows = results as any[];
+     if (rows.length === 0) return jsonResponse({ ok: false, error: "Phone, PIN, or name was not recognized" }, 401);
+     if (!displayName && !phone && rows.length > 1) {
+       return jsonResponse({ ok: false, requiresName: true, error: "Please confirm your name" }, 409);
+     }
+
 
     const user = rows[0];
     const token = `sess-${crypto.randomUUID()}`;
@@ -1012,6 +1019,9 @@ export default {
        return handleAuthLogoutRequest(request, env);
      }
      if (url.pathname === "/api/voice/login") {
+       return handleVoiceLoginRequest(request, env);
+     }
+     if (url.pathname === "/api/portal/citizen-login") {
        return handleVoiceLoginRequest(request, env);
      }
      if (url.pathname === "/api/voice/cases") {

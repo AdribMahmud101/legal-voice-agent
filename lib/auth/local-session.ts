@@ -1,8 +1,10 @@
 import type { SessionUser } from "./roles";
+import { normalizeBangladeshPhone } from "../phone/bangladesh-phone";
 
 interface LocalSessionRecord {
   user: SessionUser;
   expiresAt: number;
+  phone: string | null;
 }
 
 interface LocalAuthStore {
@@ -51,7 +53,7 @@ export function createLocalCitizenSession(
     verificationStatus: phone ? "pending" : "unverified",
     isMock: false,
   };
-  const record = { user, expiresAt: expiresAt.getTime() };
+  const record = { user, expiresAt: expiresAt.getTime(), phone: phone ? normalizeBangladeshPhone(phone) : null };
   getStore().sessions.set(token, record);
   if (pinHash) getStore().pinRecords.set(pinHash, record);
   if (intakeId) getStore().intakes.set(intakeId, { ...record, token });
@@ -65,7 +67,7 @@ export function createLocalSessionForUser(user: SessionUser): {
 } {
   const token = `local_citizen_${crypto.randomUUID()}`;
   const expiresAt = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000);
-  getStore().sessions.set(token, { user, expiresAt: expiresAt.getTime() });
+  getStore().sessions.set(token, { user, expiresAt: expiresAt.getTime(), phone: null });
   return { user, token, expiresAt };
 }
 
@@ -76,6 +78,15 @@ export function getLocalUserByPin(pinHash: string): SessionUser | null {
     return null;
   }
   return record.user;
+}
+
+export function getLocalUserByPhoneAndPin(phone: string, pinHash: string): SessionUser | null {
+  const record = getStore().pinRecords.get(pinHash);
+  if (!record || record.expiresAt <= Date.now()) {
+    if (record) getStore().pinRecords.delete(pinHash);
+    return null;
+  }
+  return record.phone === normalizeBangladeshPhone(phone) ? record.user : null;
 }
 
 export function createLocalStaffSession(
@@ -91,7 +102,7 @@ export function createLocalStaffSession(
     ...user,
     isMock: true,
   };
-  getStore().sessions.set(token, { user: sessionUser, expiresAt: expiresAt.getTime() });
+  getStore().sessions.set(token, { user: sessionUser, expiresAt: expiresAt.getTime(), phone: null });
   return { user: sessionUser, token, expiresAt };
 }
 

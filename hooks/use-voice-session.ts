@@ -5,6 +5,7 @@ import { VoiceAgent } from "@/lib/voice-sdk/client";
 import type { SessionUser } from "@/lib/auth/roles";
 import type { SdkConfig, SdkEvent } from "@/lib/voice-sdk/types";
 import type { SeverityLevel } from "@/lib/agent/knowledge/severity-classification";
+import { generateRandomBangladeshPhone } from "@/lib/phone/bangladesh-phone";
 
 export type SessionPhase =
   | "idle"
@@ -42,6 +43,8 @@ export type IntakeStep =
   | "disability_type"
   | "gender"
   | "name"
+  | "phone_primary"
+  | "phone_number"
   | "address"
   | "complete";
 
@@ -52,8 +55,13 @@ export interface IntakeData {
    disabilityTypeCode?: string | null;
    gender?: string | null;
 
-   callerName?: string | null;
-   address?: string | null;
+    callerName?: string | null;
+    phone?: string | null;
+    phonePrimary?: boolean | null;
+    phoneOperator?: string | null;
+    phoneDraft?: string;
+    address?: string | null;
+
    severityLevel?: SeverityLevel | null;
    severityTags?: string[];
    severityFactors?: string[];
@@ -247,17 +255,21 @@ export function useVoiceSession(onSdkEvent?: (evt: SdkEvent) => void): UseVoiceS
         (window as any).__voiceAgent = agent;
       }
       try {
-        await agent.start(config ?? {});
+        const callerPhone = config?.callerPhone ?? generateRandomBangladeshPhone();
+        await agent.start({ ...(config ?? {}), callerPhone });
         if (agentRef.current !== agent) {
           agent.stop();
           return;
         }
         setSessionId(agent.sessionId);
       } catch (error) {
-        if (agentRef.current === agent) {
-          agent.stop();
-          agentRef.current = null;
-        }
+         if (agentRef.current === agent) {
+           agent.stop();
+           agentRef.current = null;
+           setPhase("error");
+           setSessionId(null);
+         }
+
         throw error;
       }
     },

@@ -71,9 +71,7 @@ export async function acquireHardwareMic(emit: EventEmitter): Promise<MediaStrea
     }
     throw new Error("getUserMedia unavailable");
   } catch (err) {
-    emit({ type: "system", text: `Hardware mic error: ${String(err)}` });
-    emit({ type: "error", message: `Microphone unavailable: ${String(err)}` });
-    emit({ type: "state_changed", state: "error" });
+    emit({ type: "system", text: `Hardware mic unavailable: ${String(err)}` });
     return null;
   }
 }

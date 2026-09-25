@@ -157,23 +157,30 @@ function LoginContent() {
             <form onSubmit={handleCitizenLogin} style={{ display: "flex", flexDirection: "column", gap: "var(--space-xl)" }}>
               <div>
                 <p style={{ fontFamily: "var(--font-bn)", fontSize: "0.875rem", color: "var(--portal-text-secondary)", marginBottom: "var(--space-lg)" }}>
-                  ভয়েস ইনটেক সম্পন্ন হলে এসএমএস এর মাধ্যমে প্রাপ্ত টোকেন নম্বর দিয়ে লগইন করুন।
+                  ভয়েস ইনটেক সম্পন্ন হলে আপনার প্রাথমিক ফোন নম্বরে পাঠানো ৪ সংখ্যার পিন দিয়ে লগইন করুন।
                 </p>
                 <div style={{ display: "flex", flexDirection: "column", gap: "var(--space-md)" }}>
                   <FormField
                     label="মোবাইল নম্বর"
-                    type="tel"
-                    value={phone}
-                    onChange={(e) => setPhone(e.target.value)}
+                     type="tel"
+                     inputMode="tel"
+                     maxLength={11}
+                     value={phone}
+
+                     onChange={(e) => setPhone(e.target.value.replace(/\D/g, "").slice(0, 11))}
+
                     placeholder="01XXXXXXXXX"
                     required
                   />
                   <FormField
-                    label="টোকেন নম্বর (PIN)"
-                    type="text"
-                    value={pin}
-                    onChange={(e) => setPin(e.target.value)}
-                    placeholder="DLAS-2025-XXXX"
+                     label="৪ সংখ্যার পিন"
+                     type="text"
+                     inputMode="numeric"
+                     maxLength={4}
+                     value={pin}
+                     onChange={(e) => setPin(e.target.value.replace(/\D/g, "").slice(0, 4))}
+                     placeholder="৪ সংখ্যার পিন"
+
                     required
                     error={citizenError}
                   />

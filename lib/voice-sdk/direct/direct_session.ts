@@ -27,6 +27,13 @@ import {
   type SeverityClassification,
   type SeverityLevel,
 } from "../../agent/knowledge/severity-classification";
+import {
+  appendPhoneDigits,
+  extractPhoneDigits,
+  normalizeBangladeshPhone,
+  validateBangladeshPhone,
+} from "../../phone/bangladesh-phone";
+import { saveSimulatedSms } from "../../sms/inbox";
 
 class StreamingAudioPlayer {
   private audioCtx: AudioContext;
@@ -82,8 +89,9 @@ class StreamingAudioPlayer {
     if (this.isReset || pcm16ArrayBuf.byteLength === 0) return;
 
     if (this.audioCtx.state === "suspended") {
-      void this.audioCtx.resume();
+      void this.audioCtx.resume().catch(() => undefined);
     }
+
 
     const byteLen = pcm16ArrayBuf.byteLength - (pcm16ArrayBuf.byteLength % 2);
     if (byteLen === 0) return;
@@ -175,8 +183,9 @@ class StreamingAudioPlayer {
     if (this.isReset) return;
 
     if (this.audioCtx.state === "suspended") {
-      void this.audioCtx.resume();
+      void this.audioCtx.resume().catch(() => undefined);
     }
+
 
     const sourceNode = this.audioCtx.createBufferSource();
     sourceNode.buffer = audioBuf;
@@ -240,6 +249,10 @@ let cachedGreetingAudioBuf: AudioBuffer | null = null;
 let cachedIvrAudioBuf: AudioBuffer | null = null;
 let cachedOption1AudioBuf: AudioBuffer | null = null;
 let cachedIntakeCompleteBuf: AudioBuffer | null = null;
+let cachedPhonePrimaryBuf: AudioBuffer | null = null;
+let cachedSmsPinSentBuf: AudioBuffer | null = null;
+let cachedProblemStartBuf: AudioBuffer | null = null;
+let cachedProblemStartWithNoteBuf: AudioBuffer | null = null;
 let cachedInactivityAppQueryBuf: AudioBuffer | null = null;
 let cachedInactivityNoAckBuf: AudioBuffer | null = null;
 let cachedInactivityHangupBuf: AudioBuffer | null = null;
@@ -249,6 +262,10 @@ type AudioKind =
   | "ivr"
   | "option1"
   | "intake_complete"
+  | "phone_primary"
+  | "sms_pin_sent"
+  | "problem_start"
+  | "problem_start_with_note"
   | "inactivity_app_query"
   | "inactivity_no_ack"
   | "inactivity_hangup";
@@ -261,8 +278,13 @@ async function getPreRecordedAudioBuffer(
     if (kind === "greeting" && cachedGreetingAudioBuf) return cachedGreetingAudioBuf;
     if (kind === "ivr" && cachedIvrAudioBuf) return cachedIvrAudioBuf;
      if (kind === "option1" && cachedOption1AudioBuf) return cachedOption1AudioBuf;
-     if (kind === "intake_complete" && cachedIntakeCompleteBuf) return cachedIntakeCompleteBuf;
-     if (kind === "inactivity_app_query" && cachedInactivityAppQueryBuf) return cachedInactivityAppQueryBuf;
+      if (kind === "intake_complete" && cachedIntakeCompleteBuf) return cachedIntakeCompleteBuf;
+      if (kind === "phone_primary" && cachedPhonePrimaryBuf) return cachedPhonePrimaryBuf;
+      if (kind === "sms_pin_sent" && cachedSmsPinSentBuf) return cachedSmsPinSentBuf;
+      if (kind === "problem_start" && cachedProblemStartBuf) return cachedProblemStartBuf;
+      if (kind === "problem_start_with_note" && cachedProblemStartWithNoteBuf) return cachedProblemStartWithNoteBuf;
+      if (kind === "inactivity_app_query" && cachedInactivityAppQueryBuf) return cachedInactivityAppQueryBuf;
+
 
     if (kind === "inactivity_no_ack" && cachedInactivityNoAckBuf) return cachedInactivityNoAckBuf;
     if (kind === "inactivity_hangup" && cachedInactivityHangupBuf) return cachedInactivityHangupBuf;
@@ -272,6 +294,10 @@ async function getPreRecordedAudioBuffer(
       ivr: "/audio/ivr_menu.wav",
        option1: "/audio/option1_prompt.wav",
        intake_complete: "/audio/intake_complete.wav",
+       phone_primary: "/audio/phone_primary.wav",
+       sms_pin_sent: "/audio/sms_pin_sent.wav",
+       problem_start: "/audio/problem_start.wav",
+       problem_start_with_note: "/audio/problem_start_with_note.wav",
        inactivity_app_query: "/audio/inactivity_app_query.wav",
 
       inactivity_no_ack: "/audio/inactivity_no_ack.wav",
@@ -284,8 +310,13 @@ async function getPreRecordedAudioBuffer(
     if (kind === "greeting") cachedGreetingAudioBuf = decoded;
     if (kind === "ivr") cachedIvrAudioBuf = decoded;
      if (kind === "option1") cachedOption1AudioBuf = decoded;
-     if (kind === "intake_complete") cachedIntakeCompleteBuf = decoded;
-     if (kind === "inactivity_app_query") cachedInactivityAppQueryBuf = decoded;
+      if (kind === "intake_complete") cachedIntakeCompleteBuf = decoded;
+      if (kind === "phone_primary") cachedPhonePrimaryBuf = decoded;
+      if (kind === "sms_pin_sent") cachedSmsPinSentBuf = decoded;
+      if (kind === "problem_start") cachedProblemStartBuf = decoded;
+      if (kind === "problem_start_with_note") cachedProblemStartWithNoteBuf = decoded;
+      if (kind === "inactivity_app_query") cachedInactivityAppQueryBuf = decoded;
+
 
     if (kind === "inactivity_no_ack") cachedInactivityNoAckBuf = decoded;
     if (kind === "inactivity_hangup") cachedInactivityHangupBuf = decoded;
@@ -303,6 +334,8 @@ export type IntakeStep =
   | "disability_type"
   | "gender"
   | "name"
+  | "phone_primary"
+  | "phone_number"
   | "address"
   | "complete";
 
@@ -313,6 +346,10 @@ export interface IntakeData {
   disabilityTypeCode: string | null;
   gender: string | null;
   callerName: string | null;
+  phone: string | null;
+  phonePrimary: boolean | null;
+  phoneOperator: string | null;
+  phoneDraft: string;
   address: string | null;
   severityLevel: SeverityLevel | null;
   severityTags: string[];
@@ -523,6 +560,8 @@ export class DirectSession implements VoiceSession {
   private conversationHistory: Array<{ role: string; content: string }> = [];
   private activityEpoch: number = 0;
   private userMessageQueue: Promise<void> = Promise.resolve();
+  private assistantSpeechQueue: Promise<void> = Promise.resolve();
+  private assistantSpeechGeneration = 0;
   private emit: EventEmitter;
 
   private sttKeepAliveTimer: ReturnType<typeof setInterval> | null = null;
@@ -542,6 +581,7 @@ export class DirectSession implements VoiceSession {
   private halfDuplex: boolean = true;
   private isAssistantSpeakingOrPlaying: boolean = false;
   private lastConfig: SdkConfig | null = null;
+  private callerPhone: string | null = null;
   public sessionId: string = "call-" + Math.random().toString(36).substring(2, 9);
 
   // Multi-step case intake chain state
@@ -553,6 +593,10 @@ export class DirectSession implements VoiceSession {
     disabilityTypeCode: null,
     gender: null,
     callerName: null,
+    phone: null,
+    phonePrimary: null,
+    phoneOperator: null,
+    phoneDraft: "",
     address: null,
     severityLevel: null,
     severityTags: [],
@@ -733,8 +777,10 @@ export class DirectSession implements VoiceSession {
 
 
   public async start(config: SdkConfig): Promise<void> {
-    this.lastConfig = config;
-    this.isCallActive = true;
+     this.lastConfig = config;
+     this.callerPhone = config.callerPhone ? normalizeBangladeshPhone(config.callerPhone) : null;
+     this.isCallActive = true;
+
     this.waitingForDtmf = false;
     this.sessionId = "call-" + Date.now().toString(36) + "-" + Math.random().toString(36).substring(2, 6);
     this.halfDuplex = config.halfDuplex ?? true;
@@ -773,28 +819,30 @@ export class DirectSession implements VoiceSession {
 
     this.emit({ type: "system", text: "Starting High-Speed Streaming Voice Session..." });
 
-    // 1. Capture microphone with AEC3
     const micStream = await acquireHardwareMic(this.emit);
-    if (!micStream) return;
-    this.stream = micStream;
+    if (micStream) {
+      this.stream = micStream;
+    } else {
+      this.emit({ type: "system", text: "Microphone unavailable; continuing with keypad-only mode." });
+    }
 
-    // 2. Initialize WebAudio Context & Streaming Player
     const AudioCtxClass =
       window.AudioContext ||
       (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext;
     this.audioCtx = new AudioCtxClass();
-     if (this.audioCtx.state === "suspended") {
-       await this.audioCtx.resume();
-     }
-     this.recordingDestination = this.audioCtx.createMediaStreamDestination();
-     this.recordingChunks = [];
-     this.recordingStartedAt = performance.now();
-     this.recordingDocketId = null;
-     this.player = new StreamingAudioPlayer(this.audioCtx, this.recordingDestination);
-     this.startRecording();
+    if (this.audioCtx.state === "suspended") {
+      await this.audioCtx.resume().catch(() => undefined);
+    }
 
+    this.recordingDestination = this.audioCtx.createMediaStreamDestination();
+    this.recordingChunks = [];
+    this.recordingStartedAt = performance.now();
+    this.recordingDocketId = null;
+    this.player = new StreamingAudioPlayer(this.audioCtx, this.recordingDestination);
+    this.startRecording();
 
     // 3. Connect Persistent Streaming WebSocket TTS (Soniox / Deepgram via local proxy)
+
     this.ttsWs = new DeepgramWsTts(ttsProxyUrl, voiceId, language);
     this.ttsWs.setOnAudioChunk((pcm16) => {
       if (this.t_first_pcm_chunk === 0) {
@@ -822,12 +870,13 @@ export class DirectSession implements VoiceSession {
       this.ttsWs.sendKeepAlive();
     }, 5000);
 
-    this.sttLanguage = language;
-    this.accumulatedSegments = [];
-    this.connectStt();
+     this.sttLanguage = language;
+     this.accumulatedSegments = [];
+     if (this.stream) {
+       this.connectStt();
+       void this.setupDirectMicStreamer(this.stream);
+     }
 
-    // 5. Setup live microphone streamer node
-    void this.setupDirectMicStreamer(micStream);
 
     // 6. Play initial greeting & IVR menu
     const officialDefaultGreeting =
@@ -1237,6 +1286,11 @@ export class DirectSession implements VoiceSession {
   }
 
   private interruptAssistant() {
+    this.assistantSpeechGeneration += 1;
+    this.interruptAudioPlayback();
+  }
+
+  private interruptAudioPlayback() {
     if (this.speechFinalDebounceTimer) {
       clearTimeout(this.speechFinalDebounceTimer);
       this.speechFinalDebounceTimer = null;
@@ -1333,8 +1387,9 @@ export class DirectSession implements VoiceSession {
       let sentenceBuffer = "";
 
       while (true) {
-        const { done, value } = await reader.read();
-        if (this.activityEpoch !== activityEpoch || !this.isCallActive) return;
+         const { done, value } = await reader.read();
+         if (this.activityEpoch !== activityEpoch || !this.isCallActive) return;
+
         if (done) break;
 
         const chunkStr = decoder.decode(value, { stream: true });
@@ -1875,38 +1930,10 @@ export class DirectSession implements VoiceSession {
       this.emit({ type: "transcript", role: "assistant", text: queryText });
       this.conversationHistory.push({ role: "assistant", content: queryText });
 
-      try {
-        // Try pre-recorded first
-        if (this.audioCtx && this.player) {
-          const buf = await getPreRecordedAudioBuffer(this.audioCtx, "inactivity_app_query");
-          if (this.activityEpoch !== activityEpoch || !this.isCallActive) return;
-          if (buf && this.isCallActive) {
-            this.player.playAudioBuffer(buf);
-            await this.player.waitUntilFinished();
-          } else if (this.ttsWs) {
-            await this.ttsWs.speakWhenReady(queryText);
-            if (this.activityEpoch !== activityEpoch) return;
-            this.ttsWs.flush();
-            await this.ttsWs.waitForFlush(8000);
-            await this.player?.waitUntilFinished();
-          }
-        }
-      } catch {
-        if (this.activityEpoch !== activityEpoch || !this.isCallActive) return;
-        if (this.ttsWs) {
-          await this.ttsWs.speakWhenReady(queryText).catch(() => {});
-          if (this.activityEpoch !== activityEpoch) return;
-          this.ttsWs.flush();
-          await this.ttsWs.waitForFlush(5000).catch(() => {});
-        }
-      } finally {
-        if (this.isCallActive && this.activityEpoch === activityEpoch) {
-          this.setAssistantSpeaking(false);
-          this.turnPhase.reset();
-          this.emit({ type: "state_changed", state: "listening" });
-          // Phase 2: 10s to respond or call drops
-          this.armInactivityTimer();
-        }
+      await this.speakAssistantPhrase(queryText, "inactivity_app_query");
+      if (this.isCallActive && this.activityEpoch === activityEpoch) {
+        this.inactivityPhase = "off";
+        this.armInactivityTimer();
       }
     } else {
       // === Phase 2: No response after query → hangup ===
@@ -1920,45 +1947,32 @@ export class DirectSession implements VoiceSession {
       this.emit({ type: "transcript", role: "assistant", text: hangupText });
       this.conversationHistory.push({ role: "assistant", content: hangupText });
 
-      try {
-        if (this.audioCtx && this.player) {
-          const buf = await getPreRecordedAudioBuffer(this.audioCtx, "inactivity_hangup");
-          if (this.activityEpoch !== activityEpoch || !this.isCallActive) return;
-          if (buf && this.isCallActive) {
-            this.player.playAudioBuffer(buf);
-            await this.player.waitUntilFinished();
-          } else if (this.ttsWs) {
-            await this.ttsWs.speakWhenReady(hangupText);
-            if (this.activityEpoch !== activityEpoch) return;
-            this.ttsWs.flush();
-            await this.ttsWs.waitForFlush(8000);
-            await this.player?.waitUntilFinished();
-          }
-        }
-      } catch {
-        if (this.activityEpoch !== activityEpoch || !this.isCallActive) return;
-        if (this.ttsWs) {
-          await this.ttsWs.speakWhenReady(hangupText).catch(() => {});
-          if (this.activityEpoch !== activityEpoch) return;
-          this.ttsWs.flush();
-          await this.ttsWs.waitForFlush(5000).catch(() => {});
-        }
-      } finally {
-        if (this.isCallActive && this.activityEpoch === activityEpoch) {
-          // Emit hangup event so the UI can close the call
-          this.emit({ type: "system", text: "INACTIVITY_HANGUP" });
-          this.setAssistantSpeaking(false);
-          // Give a tiny gap before stop() so audio finishes playing
-          setTimeout(() => { if (this.isCallActive) this.stop(); }, 300);
-        }
+      await this.speakAssistantPhrase(hangupText, "inactivity_hangup");
+      if (this.isCallActive && this.activityEpoch === activityEpoch) {
+        this.emit({ type: "system", text: "INACTIVITY_HANGUP" });
+        setTimeout(() => { if (this.isCallActive) this.stop(); }, 300);
       }
     }
   }
 
   private async speakAssistantPhrase(text: string, preRecordedKind?: AudioKind): Promise<void> {
+    const generation = this.assistantSpeechGeneration;
+    const run = this.assistantSpeechQueue.then(() => {
+      if (generation !== this.assistantSpeechGeneration) return;
+      return this.playAssistantPhrase(text, preRecordedKind, generation);
+    });
+    this.assistantSpeechQueue = run.catch(() => undefined);
+    return run;
+  }
+
+  private async playAssistantPhrase(
+    text: string,
+    preRecordedKind: AudioKind | undefined,
+    generation: number,
+  ): Promise<void> {
     const clean = text.trim();
     if (!clean) return;
-    this.interruptAssistant();
+    this.interruptAudioPlayback();
     const activityEpoch = this.activityEpoch;
     this.setAssistantSpeaking(true);
     this.emit({ type: "state_changed", state: "speaking" });
@@ -1966,12 +1980,14 @@ export class DirectSession implements VoiceSession {
     this.conversationHistory.push({ role: "assistant", content: clean });
 
     if (preRecordedKind && this.audioCtx && this.player) {
-      const preRecorded = await getPreRecordedAudioBuffer(this.audioCtx, preRecordedKind);
-      if (this.activityEpoch !== activityEpoch || !this.isCallActive) return;
+       const preRecorded = await getPreRecordedAudioBuffer(this.audioCtx, preRecordedKind);
+       if (this.activityEpoch !== activityEpoch || this.assistantSpeechGeneration !== generation || !this.isCallActive) return;
+
       if (preRecorded) {
-        this.player.playAudioBuffer(preRecorded);
-        await this.player.waitUntilFinished();
-        if (this.activityEpoch !== activityEpoch) return;
+         this.player.playAudioBuffer(preRecorded);
+         await this.player.waitUntilFinished();
+         if (this.activityEpoch !== activityEpoch || this.assistantSpeechGeneration !== generation) return;
+
         this.setAssistantSpeaking(false);
         this.turnPhase.reset();
         this.emit({ type: "state_changed", state: "listening" });
@@ -1979,17 +1995,19 @@ export class DirectSession implements VoiceSession {
       }
     }
 
-    if (this.ttsWs) {
-      await this.ttsWs.speakWhenReady(clean);
-      if (this.activityEpoch !== activityEpoch) return;
+     if (this.ttsWs) {
+       await this.ttsWs.speakWhenReady(clean);
+       if (this.activityEpoch !== activityEpoch || this.assistantSpeechGeneration !== generation) return;
+
       this.ttsWs.flush();
       await this.ttsWs.waitForFlush(8000);
     }
-    if (this.player) {
-      await this.player.waitUntilFinished();
-      if (this.activityEpoch !== activityEpoch) return;
-    }
-    if (this.isCallActive && this.activityEpoch === activityEpoch) {
+     if (this.player) {
+       await this.player.waitUntilFinished();
+       if (this.activityEpoch !== activityEpoch || this.assistantSpeechGeneration !== generation) return;
+     }
+     if (this.isCallActive && this.activityEpoch === activityEpoch && this.assistantSpeechGeneration === generation) {
+
       this.setAssistantSpeaking(false);
       this.turnPhase.reset();
       this.emit({ type: "state_changed", state: "listening" });
@@ -2028,8 +2046,13 @@ export class DirectSession implements VoiceSession {
        disabilityTypeCode: null,
        gender: null,
 
-      callerName: null,
-      address: null,
+       callerName: null,
+       phone: null,
+       phonePrimary: null,
+       phoneOperator: null,
+       phoneDraft: "",
+       address: null,
+
       severityLevel: classification?.severity ?? null,
       severityTags: classification?.matchedTags ?? [],
       severityFactors: classification?.factors ?? [],
@@ -2046,7 +2069,7 @@ export class DirectSession implements VoiceSession {
     const prompt = initialProblem
       ? "আপনার সমস্যার প্রাথমিক বর্ণনা আমি নোট করেছি। নতুন কোনো তথ্য থাকলে বলুন, অথবা বলা শেষ হলে ডায়ালপ্যাডের ১ চাপুন।"
       : "জি, আমি শুনছি। আপনার পুরো আইনি সমস্যাটি বিস্তারিত বলুন। বলা শেষ হলে ডায়ালপ্যাডের ১ চাপুন।";
-    await this.speakAssistantPhrase(prompt);
+    await this.speakAssistantPhrase(prompt, initialProblem ? "problem_start_with_note" : "problem_start");
   }
 
   public async advanceFromProblemStep(): Promise<void> {
@@ -2174,24 +2197,90 @@ export class DirectSession implements VoiceSession {
       return;
     }
 
-    this.intakeData.callerName = cleanName;
-    this.intakeStep = "address";
-    this.emit({
-      type: "intake_step_changed",
-      step: "address",
-      data: this.intakeData,
-    });
+     this.intakeData.callerName = cleanName;
+     this.intakeStep = "phone_primary";
+     this.emit({
+       type: "intake_step_changed",
+       step: "phone_primary",
+       data: this.intakeData,
+     });
 
-    void this.syncDocketPatch({
-      callerName: cleanName,
-    });
+     void this.syncDocketPatch({
+       callerName: cleanName,
+     });
 
-    const honorific = this.intakeData.gender === "নারী" ? "জনাবা" : "জনাব";
-    const prompt = `ধন্যবাদ ${honorific} ${cleanName}। আপনার বর্তমান ঠিকানা ও জেলার নাম বলুন।`;
-    await this.speakAssistantPhrase(prompt);
-  }
+     const honorific = this.intakeData.gender === "নারী" ? "জনাবা" : "জনাব";
+     const prompt = `ধন্যবাদ ${honorific} ${cleanName}। আপনি কি এই ফোন নম্বরটি আপনার প্রাথমিক নম্বর, যেখানে আমরা আপনাকে সহজেই ফোন করতে পারি? হ্যাঁ অথবা না বলুন।`;
+     await this.speakAssistantPhrase(prompt, "phone_primary");
+   }
 
-  public async handleIntakeAddressInput(input: string): Promise<void> {
+   public async handleIntakePhonePrimaryInput(input: string): Promise<void> {
+     const parsed = parseBengaliYesNo(input);
+     if (parsed === null) {
+       await this.speakAssistantPhrase("দয়া করে হ্যাঁ অথবা না বলুন, কিংবা ডায়ালপ্যাডে ১ অথবা ২ চাপুন।");
+       return;
+     }
+
+     this.intakeData.phonePrimary = parsed;
+     this.intakeData.phoneDraft = "";
+     const callerPhone = this.callerPhone ? validateBangladeshPhone(this.callerPhone) : null;
+     if (parsed && callerPhone?.valid) {
+       this.intakeData.phone = callerPhone.normalized;
+       this.intakeData.phoneOperator = callerPhone.operator;
+       this.intakeStep = "address";
+       this.emit({ type: "intake_step_changed", step: "address", data: this.intakeData });
+       void this.syncDocketPatch({
+         phone: this.intakeData.phone,
+         phonePrimary: true,
+         phoneOperator: this.intakeData.phoneOperator,
+       });
+       await this.speakAssistantPhrase("আপনার বর্তমান ফোন নম্বরটি যোগাযোগের জন্য সংরক্ষণ করা হয়েছে। এখন আপনার বর্তমান ঠিকানা ও জেলার নাম বলুন।");
+       return;
+     }
+
+     this.intakeStep = "phone_number";
+     this.emit({ type: "intake_step_changed", step: "phone_number", data: this.intakeData });
+     const prompt = parsed
+       ? "আপনার বর্তমান নম্বরটি আমাদের কাছে নেই। যে নম্বরে আমরা আপনাকে ফোন করতে পারি, সেটি ১১ সংখ্যায় ডায়ালপ্যাডে লিখুন।"
+       : "ঠিক আছে। যে ফোন নম্বরে আমরা আপনাকে সহজে ফোন করতে পারি, সেটি ১১ সংখ্যায় ডায়ালপ্যাডে লিখুন।";
+     await this.speakAssistantPhrase(prompt);
+   }
+
+   public async handleIntakePhoneNumberInput(input: string): Promise<void> {
+     const digits = extractPhoneDigits(input);
+     if (!digits) {
+       await this.speakAssistantPhrase("ডায়ালপ্যাডে ১১ সংখ্যার ফোন নম্বরটি লিখুন। প্রতিটি সংখ্যার পর কোনো কাজ করতে হবে না।");
+       return;
+     }
+
+     this.intakeData.phoneDraft = appendPhoneDigits(this.intakeData.phoneDraft, digits);
+     this.emit({ type: "intake_step_changed", step: "phone_number", data: this.intakeData });
+     if (this.intakeData.phoneDraft.length < 11) return;
+
+     const validation = validateBangladeshPhone(this.intakeData.phoneDraft);
+     if (!validation.valid) {
+       this.intakeData.phoneDraft = "";
+       this.emit({ type: "intake_step_changed", step: "phone_number", data: this.intakeData });
+       await this.speakAssistantPhrase(`${validation.reasonBn} আবার ১১ সংখ্যার নম্বরটি লিখুন।`);
+       return;
+     }
+
+     this.intakeData.phone = validation.normalized;
+     this.intakeData.phoneOperator = validation.operator;
+     this.intakeData.phoneDraft = "";
+     this.intakeStep = "address";
+     this.emit({ type: "intake_step_changed", step: "address", data: this.intakeData });
+     void this.syncDocketPatch({
+       phone: this.intakeData.phone,
+       phonePrimary: this.intakeData.phonePrimary,
+       phoneOperator: this.intakeData.phoneOperator,
+     });
+     const operatorText = this.intakeData.phoneOperator === "Robi/Airtel" ? "রবি বা এয়ারটেল" : this.intakeData.phoneOperator;
+     await this.speakAssistantPhrase(`ফোন নম্বরটি বৈধ এবং অপারেটর ${operatorText}। এখন আপনার বর্তমান ঠিকানা ও জেলার নাম বলুন।`);
+   }
+
+   public async handleIntakeAddressInput(input: string): Promise<void> {
+
     const cleanAddress = input.trim();
     if (cleanAddress.length === 0) {
       const retryPrompt = "দয়া করে আপনার বর্তমান ঠিকানা ও জেলার নাম বলুন।";
@@ -2211,27 +2300,7 @@ export class DirectSession implements VoiceSession {
   }
 
   private async speakIntakeCompletion(text: string): Promise<void> {
-    if (this.audioCtx && this.player) {
-      const buf = await getPreRecordedAudioBuffer(this.audioCtx, "intake_complete");
-      if (buf && this.isCallActive) {
-        this.interruptAssistant();
-        const activityEpoch = this.activityEpoch;
-        this.setAssistantSpeaking(true);
-        this.emit({ type: "state_changed", state: "speaking" });
-        this.emit({ type: "transcript", role: "assistant", text });
-        this.conversationHistory.push({ role: "assistant", content: text });
-        this.player.playAudioBuffer(buf);
-        await this.player.waitUntilFinished();
-        if (this.isCallActive && this.activityEpoch === activityEpoch) {
-          this.setAssistantSpeaking(false);
-          this.turnPhase.reset();
-          this.emit({ type: "state_changed", state: "listening" });
-        }
-        return;
-      }
-    }
-
-    await this.speakAssistantPhrase(text);
+    await this.speakAssistantPhrase(text, "intake_complete");
   }
 
   private async createCitizenSession(
@@ -2246,9 +2315,10 @@ export class DirectSession implements VoiceSession {
       body: JSON.stringify({
         voiceSessionId: this.sessionId,
         docketId,
-        displayName: this.intakeData.callerName || "নাগরিক",
-        phone: null,
-        problem: this.intakeData.problem,
+         displayName: this.intakeData.callerName || "নাগরিক",
+         phone: this.intakeData.phone,
+         problem: this.intakeData.problem,
+
         hasDisability: this.intakeData.hasDisability,
         disabilityType: this.intakeData.disabilityType,
          disabilityTypeCode: this.intakeData.disabilityTypeCode,
@@ -2276,12 +2346,16 @@ export class DirectSession implements VoiceSession {
      const isBlind =
        this.intakeData.hasDisability === true &&
        (this.intakeData.disabilityTypeCode === "visual" || this.intakeData.severityTags.includes("PWD_Visual"));
-     const blindPin = isBlind ? generateVoicePin() : undefined;
+     const voicePin = generateVoicePin();
 
       await this.syncDocketPatch({
 
-       callerName: this.intakeData.callerName,
-       incidentSummary: this.intakeData.problem,
+        callerName: this.intakeData.callerName,
+        phone: this.intakeData.phone,
+        phonePrimary: this.intakeData.phonePrimary,
+        phoneOperator: this.intakeData.phoneOperator,
+        incidentSummary: this.intakeData.problem,
+
         gender: this.intakeData.gender,
         hasDisability: this.intakeData.hasDisability,
         disabilityType: this.intakeData.disabilityType,
@@ -2309,7 +2383,7 @@ export class DirectSession implements VoiceSession {
 
      let citizenUser: SessionUser;
      try {
-       citizenUser = await this.createCitizenSession(docketId, district, category, blindPin);
+       citizenUser = await this.createCitizenSession(docketId, district, category, voicePin);
      } catch (error) {
        this.emit({
          type: "error",
@@ -2318,19 +2392,27 @@ export class DirectSession implements VoiceSession {
        return;
      }
 
-     if (isBlind && blindPin) {
+     if (isBlind && voicePin) {
        this.completedBlindUser = citizenUser;
        this.completedBlindDocketId = docketId;
-       this.blindVoicePin = blindPin;
+       this.blindVoicePin = voicePin;
        this.blindAccessState = "pin_ready";
        this.intakeStep = "complete";
        await this.speakAssistantPhrase(
-         `আপনার আইনি অভিযোগ ও তথ্যবলী সফলভাবে নথিভুক্ত হয়েছে। আপনার ডকেট নম্বর ${docketId}। আপনার ভয়েস লগইন পিন হলো ${blindPin}। আমি আবার বলছি: ${blindPin}। পরবর্তী কলে ১ চেপে লগইন বলুন এবং এই পিন দিয়ে কেসের তথ্য ও আপডেট শুনুন। আবার শুনতে চাইলে স্টার বা অ্যাস্টেরিস্ক চিহ্ন চাপুন, আর কল শেষ করতে হ্যাশ চিহ্ন চাপুন।`,
+         `আপনার আইনি অভিযোগ ও তথ্যবলী সফলভাবে নথিভুক্ত হয়েছে। আপনার ডকেট নম্বর ${docketId}। আপনার ভয়েস লগইন পিন হলো ${voicePin}। আমি আবার বলছি: ${voicePin}। পরবর্তী কলে ১ চেপে লগইন বলুন এবং এই পিন দিয়ে কেসের তথ্য ও আপডেট শুনুন। আবার শুনতে চাইলে স্টার বা অ্যাস্টেরিস্ক চিহ্ন চাপুন, আর কল শেষ করতে হ্যাশ চিহ্ন চাপুন।`,
        );
        return;
      }
 
+     if (this.intakeData.phone && voicePin) {
+       saveSimulatedSms(
+         this.intakeData.phone,
+         `আপনার ১৬৬৯৯ ভয়েস লগইন পিন: ${voicePin}। এই পিনটি ৩০ দিনের জন্য ব্যবহার করতে পারবেন।`,
+       );
+     }
      const closingPrompt =
+       "আপনার আইনি অভিযোগ ও তথ্যবলী সফলভাবে নথিভুক্ত করা হয়েছে। আপনার ডকেট নম্বরটি কথোপকথনের রেকর্ডে সংরক্ষিত আছে। আপনার যোগাযোগের ফোন নম্বরে ৪ সংখ্যার ভয়েস লগইন পিন পাঠানো হয়েছে। এই পিন দিয়ে ভবিষ্যতে লগইন করে কেসের তথ্য ও আপডেট দেখতে পারবেন। জাতীয় আইনগত সহায়তা প্রদান সংস্থা থেকে আমাদের প্যানেল আইনজীবী যোগাযোগ করবেন। আপনাকে ধন্যবাদ।";
+     await this.speakAssistantPhrase(closingPrompt, "sms_pin_sent");
        "আপনার আইনি অভিযোগ ও তথ্যবলী সফলভাবে নথিভুক্ত করা হয়েছে। আপনার ডকেট নম্বরটি কথোপকথনের রেকর্ডে সংরক্ষিত আছে। জাতীয় আইনগত সহায়তা প্রদান সংস্থা থেকে আমাদের প্যানেল আইনজীবী দ্রুত আপনার সাথে যোগাযোগ করবেন। আপনাকে ধন্যবাদ। আপনার কলটি এখানেই শেষ করা হচ্ছে।";
      await this.speakIntakeCompletion(closingPrompt);
 
@@ -2382,13 +2464,26 @@ export class DirectSession implements VoiceSession {
       return;
     }
 
-    if (this.intakeStep === "name") {
-      this.emit({ type: "transcript", role: "user", text: clean });
-      await this.handleIntakeNameInput(clean);
-      return;
-    }
+     if (this.intakeStep === "name") {
+       this.emit({ type: "transcript", role: "user", text: clean });
+       await this.handleIntakeNameInput(clean);
+       return;
+     }
 
-    if (this.intakeStep === "address") {
+     if (this.intakeStep === "phone_primary") {
+       this.emit({ type: "transcript", role: "user", text: clean });
+       await this.handleIntakePhonePrimaryInput(clean);
+       return;
+     }
+
+     if (this.intakeStep === "phone_number") {
+       this.emit({ type: "transcript", role: "user", text: clean });
+       await this.handleIntakePhoneNumberInput(clean);
+       return;
+     }
+
+     if (this.intakeStep === "address") {
+
       this.emit({ type: "transcript", role: "user", text: clean });
       await this.handleIntakeAddressInput(clean);
       return;
@@ -2480,11 +2575,30 @@ export class DirectSession implements VoiceSession {
         return;
       }
 
-      if (this.intakeStep === "address") {
-        this.emit({ type: "transcript", role: "user", text: trimmed });
-        await this.handleIntakeAddressInput(trimmed);
-        return;
-      }
+       if (this.intakeStep === "phone_primary") {
+         const val =
+           trimmed.includes("1") || trimmed.includes("১")
+             ? "1"
+             : trimmed.includes("2") || trimmed.includes("২")
+               ? "2"
+               : trimmed;
+         this.emit({ type: "transcript", role: "user", text: trimmed });
+         await this.handleIntakePhonePrimaryInput(val);
+         return;
+       }
+
+       if (this.intakeStep === "phone_number") {
+         this.emit({ type: "transcript", role: "user", text: trimmed });
+         await this.handleIntakePhoneNumberInput(trimmed);
+         return;
+       }
+
+       if (this.intakeStep === "address") {
+         this.emit({ type: "transcript", role: "user", text: trimmed });
+         await this.handleIntakeAddressInput(trimmed);
+         return;
+       }
+
     }
 
     // 2. Starting Case Intake Chain via Keypad 2 / Option 2
@@ -2504,42 +2618,14 @@ export class DirectSession implements VoiceSession {
     this.setAssistantSpeaking(true);
     this.emit({ type: "state_changed", state: "speaking" });
 
-    // Option 1 instant prompt via pre-recorded Soniox audio (zero LLM latency, zero TTS credits)
     if (trimmed === "১ (সাধারণ তথ্য ও নিয়মাবলী)") {
       const opt1Text = "জি, সাধারণ তথ্যের জন্য আপনার প্রশ্নটি বলুন, আমি শুনছি।";
-      this.emit({ type: "transcript", role: "assistant", text: opt1Text });
-      this.conversationHistory.push({ role: "assistant", content: opt1Text });
-
-      try {
-        if (this.audioCtx && this.player) {
-          const opt1Buf = await getPreRecordedAudioBuffer(this.audioCtx, "option1");
-          if (this.activityEpoch !== activityEpoch || !this.isCallActive) return;
-          if (opt1Buf && this.player) {
-            this.player.playAudioBuffer(opt1Buf);
-            await this.player.waitUntilFinished();
-          } else if (this.ttsWs) {
-            await this.ttsWs.speakWhenReady(opt1Text);
-            if (this.activityEpoch !== activityEpoch) return;
-            this.ttsWs.flush();
-            await this.ttsWs.waitForFlush(8000);
-            await this.player.waitUntilFinished();
-          }
-        }
-      } catch (err) {
-        console.warn("Failed to play option1 pre-recorded audio:", err);
-      } finally {
-        if (this.isCallActive && this.activityEpoch === activityEpoch) {
-          this.activeAbortCtrl = null;
-          this.setAssistantSpeaking(false);
-          this.turnPhase.reset();
-          this.emit({ type: "state_changed", state: "listening" });
-          // Activate general query mode and start 10s inactivity watch
-          this.generalQueryMode = true;
-          this.inactivityPhase = "off";
-          this.armInactivityTimer();
-        }
+      await this.speakAssistantPhrase(opt1Text, "option1");
+      if (this.isCallActive && this.activityEpoch === activityEpoch) {
+        this.generalQueryMode = true;
+        this.inactivityPhase = "off";
+        this.armInactivityTimer();
       }
-
       return;
     }
 
@@ -2575,8 +2661,13 @@ export class DirectSession implements VoiceSession {
        disabilityTypeCode: null,
        gender: null,
 
-      callerName: null,
-      address: null,
+       callerName: null,
+       phone: null,
+       phonePrimary: null,
+       phoneOperator: null,
+       phoneDraft: "",
+       address: null,
+
       severityLevel: null,
       severityTags: [],
       severityFactors: [],

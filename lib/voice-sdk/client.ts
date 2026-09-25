@@ -43,13 +43,11 @@ export class VoiceAgent implements VoiceSession {
     const runtime = await this.fetchRuntimeConfig();
     if (startEpoch !== this.startEpoch) return;
 
-    // Merge: explicit caller overrides win over the fetched defaults.
-     const merged: SdkConfig = {
-       ...config,
-       sttProvider: "soniox",
-       sttModel: config.sttModel ?? runtime.sttModel,
-       llmModel: config.llmModel ?? runtime.llmModel,
-
+    const merged: SdkConfig = {
+      ...config,
+      sttProvider: "soniox",
+      sttModel: config.sttModel ?? runtime.sttModel,
+      llmModel: config.llmModel ?? runtime.llmModel,
       llmProxyUrl: config.llmProxyUrl ?? runtime.llmProxyUrl,
       voiceId: config.voiceId ?? runtime.ttsVoiceId,
       ttsProxyUrl: config.ttsProxyUrl ?? runtime.ttsProxyUrl,
@@ -58,20 +56,13 @@ export class VoiceAgent implements VoiceSession {
     };
 
      if (!merged.ttsProxyUrl) {
-
-      if (runtime.ttsProxyError) {
-        this.emit({
-          type: "error",
-          message: `TTS proxy unavailable: ${runtime.ttsProxyError}. Restart?`,
-        });
-      } else {
-        this.emit({
-          type: "error",
-          message: "TTS proxy is not running. Restart the server and try again.",
-        });
-      }
-      return;
-    }
+       const message = runtime.ttsProxyError
+         ? `TTS proxy unavailable: ${runtime.ttsProxyError}`
+         : "TTS proxy is not running";
+       this.emit({ type: "error", message });
+       this.emit({ type: "state_changed", state: "error" });
+       throw new Error(message);
+     }
 
     const session = new DirectSession(this.emit);
     this.session = session;
@@ -97,10 +88,21 @@ export class VoiceAgent implements VoiceSession {
   }
 
   private async fetchRuntimeConfig(): Promise<VoiceRuntimeConfig> {
-    const res = await fetch(DEFAULT_CONFIG_URL, { cache: "no-store" });
-    if (!res.ok) {
-      throw new Error(`Voice config request failed: ${res.status} ${res.statusText}`);
+    let timer: ReturnType<typeof setTimeout> | null = null;
+    const timeout = new Promise<never>((_, reject) => {
+      timer = setTimeout(() => reject(new Error("Voice configuration timed out")), 8000);
+    });
+    try {
+      const res = await Promise.race([
+        fetch(DEFAULT_CONFIG_URL, { cache: "no-store" }),
+        timeout,
+      ]);
+      if (!res.ok) {
+        throw new Error(`Voice config request failed: ${res.status} ${res.statusText}`);
+      }
+      return (await res.json()) as VoiceRuntimeConfig;
+    } finally {
+      if (timer) clearTimeout(timer);
     }
-    return (await res.json()) as VoiceRuntimeConfig;
   }
 }

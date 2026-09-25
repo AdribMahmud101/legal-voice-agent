@@ -40,6 +40,8 @@ export interface SdkConfig {
   halfDuplex?: boolean;
   /** System prompt the agent should follow. */
   systemPrompt?: string;
+  /** Optional caller phone number supplied by a telephony gateway. */
+  callerPhone?: string | null;
   /** Immediately spoken on session start once the pipeline is live. */
   greeting?: string;
   /** Secondary message / IVR menu spoken immediately after greeting. */
@@ -65,15 +67,20 @@ export type SdkEvent =
     }
   | {
       type: "intake_step_changed";
-      step: "idle" | "problem" | "disability" | "disability_type" | "gender" | "name" | "address" | "complete";
+      step: "idle" | "problem" | "disability" | "disability_type" | "gender" | "name" | "phone_primary" | "phone_number" | "address" | "complete";
       data: {
         problem?: string;
         hasDisability?: boolean | null;
         disabilityType?: string | null;
         disabilityTypeCode?: string | null;
         gender?: string | null;
-         callerName?: string | null;
-         address?: string | null;
+          callerName?: string | null;
+          phone?: string | null;
+          phonePrimary?: boolean | null;
+          phoneOperator?: string | null;
+          phoneDraft?: string;
+          address?: string | null;
+
          severityLevel?: SeverityLevel | null;
          severityTags?: string[];
          severityFactors?: string[];

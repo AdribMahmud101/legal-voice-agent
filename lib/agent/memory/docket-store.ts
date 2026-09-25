@@ -29,6 +29,8 @@ export interface CaseDocket {
   sessionId: string;
   callerName: string | null;
   phone: string | null;
+  phonePrimary: boolean | null;
+  phoneOperator: string | null;
   gender: string | null;
   hasDisability: boolean | null;
   disabilityType: string | null;
@@ -63,8 +65,11 @@ class DocketStore {
     if (!docket) {
       docket = {
         sessionId,
-        callerName: null,
-        phone: null,
+         callerName: null,
+         phone: null,
+         phonePrimary: null,
+         phoneOperator: null,
+
          gender: null,
          hasDisability: null,
          disabilityType: null,
