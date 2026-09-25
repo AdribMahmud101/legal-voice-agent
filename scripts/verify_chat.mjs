@@ -174,6 +174,19 @@ async function main() {
   check('composer sits inside the viewport', composer.bottom <= composer.vh + 1, JSON.stringify(composer));
   check('input is usable on mobile', composer.inputVisible, JSON.stringify(composer));
 
+  // The sheet must track window.visualViewport, because on Android
+  // position:fixed resolves against the layout viewport and the keyboard
+  // detaches the sheet, pushing the header out of sight.
+  const vvh = await mobile.evaluate(() => ({
+    set: getComputedStyle(document.documentElement).getPropertyValue('--uchat-vvh').trim(),
+    viewportHeight: window.visualViewport ? Math.round(window.visualViewport.height) : null,
+    panelHeight: Math.round(document.querySelector('[data-testid="chat-panel"]')?.getBoundingClientRect().height ?? 0),
+    headerTop: Math.round(document.querySelector('.uchat-head')?.getBoundingClientRect().top ?? -1),
+  }));
+  check('sheet is sized from the visual viewport', vvh.set.endsWith('px') && vvh.set !== '0px', JSON.stringify(vvh));
+  check('sheet height matches the visual viewport', vvh.viewportHeight === null || Math.abs(vvh.panelHeight - vvh.viewportHeight) <= 2, JSON.stringify(vvh));
+  check('header stays at the top of the visual viewport', vvh.headerTop <= 1, JSON.stringify(vvh));
+
   // Emulate the on-screen keyboard by shrinking the visual viewport.
   await mobile.evaluate(() => {
     document.documentElement.style.setProperty('--force-viewport', '360');

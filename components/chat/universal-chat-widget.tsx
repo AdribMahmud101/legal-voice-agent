@@ -113,6 +113,38 @@ export function UniversalChatWidget() {
     };
   }, [open, isMobile]);
 
+  /**
+   * Pin the sheet to the VISUAL viewport.
+   *
+   * On Android, `position: fixed` resolves against the layout viewport. When
+   * the on-screen keyboard opens, the visual viewport shrinks and the layout
+   * viewport can scroll, which detaches a `top: 0; height: 100dvh` sheet and
+   * pushes the header out of sight. visualViewport is the only reliable source
+   * for the area not covered by the keyboard, so the sheet is sized and offset
+   * from it directly.
+   */
+  useEffect(() => {
+    if (!open || !isMobile) return;
+    const viewport = window.visualViewport;
+    if (!viewport) return;
+
+    const sync = () => {
+      const root = document.documentElement;
+      root.style.setProperty("--uchat-vvh", `${Math.round(viewport.height)}px`);
+      root.style.setProperty("--uchat-vvoffset", `${Math.round(viewport.offsetTop)}px`);
+    };
+    sync();
+    viewport.addEventListener("resize", sync);
+    viewport.addEventListener("scroll", sync);
+    return () => {
+      viewport.removeEventListener("resize", sync);
+      viewport.removeEventListener("scroll", sync);
+      const root = document.documentElement;
+      root.style.removeProperty("--uchat-vvh");
+      root.style.removeProperty("--uchat-vvoffset");
+    };
+  }, [open, isMobile]);
+
   useEffect(() => {
     if (!open) return;
     // On mobile the keyboard would open immediately and squeeze the sheet; the

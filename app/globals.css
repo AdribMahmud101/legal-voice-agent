@@ -261,10 +261,14 @@ body {
     right: 0;
     left: 0;
     top: 0;
-    bottom: 0;
+    bottom: auto;
     width: 100%;
-    height: 100dvh;
-    max-height: 100dvh;
+    /* --uchat-vvh is set from window.visualViewport while the sheet is open, so
+       the on-screen keyboard cannot push the header out of view. 100dvh is the
+       fallback for browsers without visualViewport. */
+    height: var(--uchat-vvh, 100dvh);
+    max-height: var(--uchat-vvh, 100dvh);
+    transform: translateY(var(--uchat-vvoffset, 0px));
     border: 0;
     border-radius: 0;
     box-shadow: none;
