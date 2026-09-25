@@ -24,6 +24,27 @@ Free — safe to run routinely:
 
 Default regression sweep for ordinary UI/portal work: the free suites + `npx tsc --noEmit`.
 
+## Case tracking (root menu option 3)
+
+- Menu: `1` general inquiry, `2` problem/application, `3` case tracking. Key `3`
+  used to be a hardcoded mock docket readout; it is now real tracking.
+- The four-digit voice login PIN is keyed digit by digit, exactly like the phone
+  number, so no new gesture is taught. Three wrong PINs close the call.
+- `POST /api/voice/case-status` resolves the PIN to a case and returns
+  `state: "filed" | "application"`. Filed means enrolled with an advocate
+  assigned; a fresh voice intake is an application. The response deliberately
+  carries no name, phone, address or problem statement, and an unknown PIN is
+  shaped identically to a wrong one.
+- The mic is muted while a PIN is keyed, so the query/warn/hangup inactivity
+  escalation has nothing to listen for. The tracking branch instead uses one
+  longer grace window and then plays the recorded `inactivity_hangup` sign-off.
+- Only static prompts are pre-recorded. The wrong-PIN and result prompts stay on
+  TTS because they embed a remaining-attempts count or a docket number, and a
+  fixed clip would drop that on every replay. Regenerate with
+  `node scripts/generate_audio_prompts.mjs <name-filter>`.
+- Test fixtures: PIN `1234` is a submitted application, PIN `5678` is a filed
+  case. Both are `is_mock` rows.
+
 ## Universal chatbot (visitors + citizens)
 
 - Model: DeepInfra `deepseek-ai/DeepSeek-V4-Flash` (`lib/chat/deepinfra.ts`).
