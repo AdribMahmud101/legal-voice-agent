@@ -271,6 +271,49 @@ async function main() {
   }, site);
   check('rejects unauthenticated', anonStatus === 401, `status=${anonStatus}`);
 
+  // ---- the reported NID, in a session whose name matches it ----
+  // Regression: 1234567890 derived nameBn "নাসরিন ইব্রাহিম" (given name plus
+  // FATHER) while nameEn was "Nasrin Akter", so the two halves of one record
+  // disagreed and the name check failed on every run. Needs its own session
+  // because earlier checks in this suite rename the profile.
+  await page.evaluate(async () => {
+    await fetch('/api/roles/complete', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      credentials: 'include',
+      body: JSON.stringify({
+        voiceSessionId: `idv-rep-${Math.floor(Math.random() * 1e9)}`,
+        docketId: `DLAS-2025-${Math.floor(1000 + Math.random() * 9000)}`,
+        displayName: 'Nasrin Akter',
+        phone: '01713131313',
+        problem: 'নাম যাচাই পরীক্ষা',
+        indigenousLanguage: 'bn',
+        district: 'ঢাকা',
+        category: 'land_dispute',
+      }),
+    });
+  });
+  const reported = await page.evaluate(async () => {
+    const r = await fetch('/api/portal/verify-identity', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      credentials: 'include',
+      body: JSON.stringify({ documentType: 'nid', documentNumber: '1234567890' }),
+    });
+    return { status: r.status, body: await r.json() };
+  });
+  const rv = reported.body.verification || {};
+  const fatherTokens = ['আব্দুল করিম', 'ইব্রাহিম', 'আব্দুল হাকিম', 'আনোয়ার হোসেন', 'রফিকুল'];
+  const surnames = ['বেগম', 'ইসলাম', 'আক্তার', 'খাতুন', 'সুলতানা', 'হক', 'চৌধুরী', 'রহমান'];
+  check('reported NID is accepted', reported.status === 200, JSON.stringify(reported.body).slice(0, 200));
+  check('reported NID name is not a first+father merge', !fatherTokens.some((t) => (rv.nameBn || '').includes(t)), `nameBn=${rv.nameBn} father=${rv.fatherName}`);
+  check('reported NID Bangla name ends in a surname', surnames.includes((rv.nameBn || '').trim().split(/\s+/).pop() || ''), `nameBn=${rv.nameBn}`);
+  check('reported NID name is two words', (rv.nameBn || '').trim().split(/\s+/).length === 2, `nameBn=${rv.nameBn}`);
+  check('reported NID name matches the typed name', rv.nameMatch === true, `nameMatch=${rv.nameMatch} detail=${rv.nameMismatchDetail}`);
+  check('reported NID verifies cleanly', rv.status === 'verified', `status=${rv.status} detail=${rv.nameMismatchDetail}`);
+  check('reported NID profile name is the clean name', rv.profileName === rv.nameBn, `profile="${rv.profileName}" nameBn="${rv.nameBn}"`);
+  console.log('  reported NID:', rv.status, '| nameEn:', rv.nameEn, '| nameBn:', rv.nameBn, '| nameMatch:', rv.nameMatch);
+
   console.log('\n=== RESULTS ===');
   let failed = 0;
   for (const [k, v] of Object.entries(results)) {
