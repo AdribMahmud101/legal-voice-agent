@@ -47,6 +47,7 @@ export default function ConsultationPanel({
   const [data, setData] = useState<ConsultationResponse | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [finished, setFinished] = useState(false);
+  const [callAccepted, setCallAccepted] = useState(false);
   // Server-recorded playback position, so a reload resumes instead of restarting.
   const [lastSeq, setLastSeq] = useState(0);
   // The completion ping must carry the newest turn, not whatever the render that
@@ -168,6 +169,7 @@ export default function ConsultationPanel({
     setLastSeq(0);
     setOpen(true);
     setFinished(false);
+    setCallAccepted(false);
   }, []);
 
   if (state === "idle") return null;
@@ -238,6 +240,8 @@ export default function ConsultationPanel({
           outline: "none",
         }}
       >
+        {/* Hide header when showing incoming call UI */}
+        {(state !== "ready" || callAccepted) && (
         <div
           style={{
             background: "linear-gradient(135deg,#064e3b,#0f766e)",
@@ -320,6 +324,7 @@ export default function ConsultationPanel({
           </p>
           </div>
         </div>
+        )}
 
         {state === "starting" ? (
           <div style={{ padding: "26px" }}>
@@ -373,7 +378,159 @@ export default function ConsultationPanel({
           </div>
         ) : null}
 
-        {state === "ready" && data ? (
+        {state === "ready" && data && !callAccepted ? (
+          <div className="incoming-call">
+            <style>{`
+              .incoming-call {
+                padding: 40px 30px;
+                text-align: center;
+                background: linear-gradient(180deg, #f0fdf4 0%, #fff 100%);
+              }
+              .call-avatar {
+                width: 90px;
+                height: 90px;
+                border-radius: 50%;
+                background: linear-gradient(135deg, #064e3b, #0f766e);
+                margin: 0 auto 20px;
+                display: grid;
+                place-items: center;
+                font-size: 32px;
+                color: #fff;
+                font-weight: 800;
+                animation: call-pulse 1.5s ease-in-out infinite;
+                box-shadow: 0 0 0 0 rgba(16, 185, 129, 0.7);
+              }
+              @keyframes call-pulse {
+                0% { box-shadow: 0 0 0 0 rgba(16, 185, 129, 0.7); }
+                70% { box-shadow: 0 0 0 20px rgba(16, 185, 129, 0); }
+                100% { box-shadow: 0 0 0 0 rgba(16, 185, 129, 0); }
+              }
+              .call-ring {
+                display: flex;
+                justify-content: center;
+                gap: 6px;
+                margin-bottom: 20px;
+              }
+              .call-ring-dot {
+                width: 8px;
+                height: 8px;
+                border-radius: 50%;
+                background: #10b981;
+                animation: call-ring-bounce 1s ease-in-out infinite;
+              }
+              .call-ring-dot:nth-child(2) { animation-delay: 0.15s; }
+              .call-ring-dot:nth-child(3) { animation-delay: 0.3s; }
+              .call-ring-dot:nth-child(4) { animation-delay: 0.45s; }
+              @keyframes call-ring-bounce {
+                0%, 100% { transform: scale(1); opacity: 0.5; }
+                50% { transform: scale(1.5); opacity: 1; }
+              }
+              .call-label {
+                font-family: var(--font-bn);
+                font-size: 0.85rem;
+                color: #10b981;
+                font-weight: 700;
+                margin-bottom: 8px;
+                letter-spacing: 1px;
+              }
+              .call-name {
+                font-family: var(--font-bn);
+                font-size: 1.4rem;
+                font-weight: 800;
+                color: #064e3b;
+                margin: 0 0 6px;
+              }
+              .call-role {
+                font-family: var(--font-bn);
+                font-size: 0.9rem;
+                color: #475569;
+                margin: 0 0 8px;
+              }
+              .call-district {
+                font-family: var(--font-bn);
+                font-size: 0.8rem;
+                color: #64748b;
+                margin: 0 0 30px;
+              }
+              .call-actions {
+                display: flex;
+                justify-content: center;
+                gap: 20px;
+              }
+              .call-btn {
+                width: 70px;
+                height: 70px;
+                border-radius: 50%;
+                border: none;
+                cursor: pointer;
+                display: grid;
+                place-items: center;
+                font-size: 28px;
+                transition: transform 0.15s, box-shadow 0.15s;
+              }
+              .call-btn:hover {
+                transform: scale(1.1);
+              }
+              .call-btn.accept {
+                background: linear-gradient(135deg, #10b981, #059669);
+                color: #fff;
+                box-shadow: 0 4px 20px rgba(16, 185, 129, 0.4);
+              }
+              .call-btn.accept:hover {
+                box-shadow: 0 6px 30px rgba(16, 185, 129, 0.6);
+              }
+              .call-btn.decline {
+                background: linear-gradient(135deg, #ef4444, #dc2626);
+                color: #fff;
+                box-shadow: 0 4px 20px rgba(239, 68, 68, 0.3);
+              }
+              .call-btn-label {
+                font-family: var(--font-bn);
+                font-size: 0.72rem;
+                font-weight: 700;
+                margin-top: 8px;
+                color: #475569;
+              }
+            `}</style>
+            <div className="call-ring">
+              <span className="call-ring-dot" />
+              <span className="call-ring-dot" />
+              <span className="call-ring-dot" />
+              <span className="call-ring-dot" />
+            </div>
+            <div className="call-avatar">📞</div>
+            <p className="call-label">ইনকামিং কল</p>
+            <h3 className="call-name">{data.dlao.name}</h3>
+            <p className="call-role">জেলা লিগ্যাল এইড অফিসার (ডিএলএও)</p>
+            <p className="call-district">জেলা লিগ্যাল এইড অফিস</p>
+            <div className="call-actions">
+              <div style={{ textAlign: "center" }}>
+                <button
+                  type="button"
+                  className="call-btn decline"
+                  onClick={() => setOpen(false)}
+                  title="কল প্রত্যাখ্যান করুন"
+                >
+                  ✕
+                </button>
+                <p className="call-btn-label">প্রত্যাখ্যান</p>
+              </div>
+              <div style={{ textAlign: "center" }}>
+                <button
+                  type="button"
+                  className="call-btn accept"
+                  onClick={() => setCallAccepted(true)}
+                  title="কল গ্রহণ করুন"
+                >
+                  ✓
+                </button>
+                <p className="call-btn-label">গ্রহণ করুন</p>
+              </div>
+            </div>
+          </div>
+        ) : null}
+
+        {state === "ready" && data && callAccepted ? (
           <>
             <ConsultationPlayer
               script={data.script}
