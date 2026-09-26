@@ -241,6 +241,15 @@ export function PortalView({ onOpenSoftphone, isCallActive, currentUser }: Porta
   const handleApplicationDone = (result: ApplyWizardResult) => {
     setApplicationReceipt(result);
     setApplicationSent(true);
+    // The receipt carries the docket and the voice PIN, so it is left on screen for a
+    // beat rather than replaced instantly. After that the applicant is moved to their
+    // dashboard, where the DLAO callback opens on its own — the brief is that the call
+    // follows the application immediately, and leaving a manual "continue" click in
+    // between meant the consultation never actually started by itself.
+    window.setTimeout(() => {
+      setModal(null);
+      router.push("/citizen");
+    }, 4500);
   };
 
   const goToCitizenDashboard = () => {

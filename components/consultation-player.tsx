@@ -34,11 +34,30 @@ const EVENT_BADGE: Record<string, string> = {
   consultation_complete: "কেস নথিভুক্ত",
 };
 
+/**
+ * Pacing, in one place so it can be reasoned about rather than nudged inline.
+ *
+ * This is set for a judge in a room who has to *read* Bangla as well as listen to
+ * it — roughly two and a half times the speed that felt right on a phone. Each turn
+ * gets a floor, because a short line like "জি, ধন্যবাদ" would otherwise be gone
+ * before anyone had finished the previous one.
+ */
+const PACE = {
+  /** ms before a turn's first character appears. */
+  leadIn: 620,
+  /** ms per ~14 characters, while the line "types". */
+  perChunkTyping: 195,
+  /** ms per chunk for a non-typed (system) line, which is read rather than spoken. */
+  perChunkRead: 240,
+  /** ms between one turn landing and the next starting. */
+  betweenTurns: 950,
+} as const;
+
 function speakMs(text: string, typing: boolean): number {
-  // Bangla reads slower than the ~200ms/word feel of Latin text; floor it so a short
-  // line is not over before a judge has finished reading the previous one.
   const words = Math.max(3, Math.round(text.length / 14));
-  return typing ? 260 + words * 95 : 320 + words * 130;
+  return (
+    PACE.leadIn + words * (typing ? PACE.perChunkTyping : PACE.perChunkRead)
+  );
 }
 
 export default function ConsultationPlayer({
@@ -47,6 +66,7 @@ export default function ConsultationPlayer({
   panelLawyerName,
   applicantName,
   autoStart = true,
+  onFirstTurn,
   onFinished,
 }: {
   script: ConsultationScript;
@@ -54,6 +74,7 @@ export default function ConsultationPlayer({
   panelLawyerName: string | null;
   applicantName: string;
   autoStart?: boolean;
+  onFirstTurn?: () => void;
   onFinished?: () => void;
 }) {
   const [visible, setVisible] = useState<ConsultationTurn[]>([]);
@@ -67,6 +88,23 @@ export default function ConsultationPlayer({
   const [runId, setRunId] = useState(autoStart ? 1 : 0);
   const scrollRef = useRef<HTMLDivElement | null>(null);
   const finishedRef = useRef(false);
+  // Held in a ref on purpose. Depending on the callback directly restarted the whole
+  // animation whenever the parent re-rendered, because an inline arrow is a new
+  // function every render: the effect tore down its own timer chain and began again
+  // from turn 1, which looked like a message loop at the end.
+  const onFinishedRef = useRef(onFinished);
+  useEffect(() => {
+    onFinishedRef.current = onFinished;
+  }, [onFinished]);
+  const onFirstTurnRef = useRef(onFirstTurn);
+  useEffect(() => {
+    onFirstTurnRef.current = onFirstTurn;
+  }, [onFirstTurn]);
+  const firstTurnRef = useRef(false);
+  // Set by Skip. The timer chain checks it, because the playback effect cannot be
+  // torn down from here — its deps have not changed — so without this the chain would
+  // keep appending turns behind the skip and fire the completion callback twice.
+  const stoppedRef = useRef(false);
 
   const turns = script.turns;
 
@@ -88,6 +126,7 @@ export default function ConsultationPlayer({
     setPlaying(true);
 
     const step = () => {
+      if (stoppedRef.current) return;
       if (cancelled || index >= turns.length) {
         if (!cancelled) {
           setTyping(null);
@@ -95,7 +134,7 @@ export default function ConsultationPlayer({
           setDone(true);
           if (!finishedRef.current) {
             finishedRef.current = true;
-            onFinished?.();
+            onFinishedRef.current?.();
           }
         }
         return;
@@ -103,12 +142,19 @@ export default function ConsultationPlayer({
       const turn = turns[index];
       setPhase(turn.phase);
       setTyping(turn);
+      if (!firstTurnRef.current) {
+        firstTurnRef.current = true;
+        // The panel collapses its explanation here: the explainer is what an
+        // applicant reads before the call, but once the call is running the
+        // conversation itself is the thing that needs the room.
+        onFirstTurnRef.current?.();
+      }
       timers.push(setTimeout(() => {
-        if (cancelled) return;
+        if (cancelled || stoppedRef.current) return;
         setTyping(null);
         setVisible((prev) => (prev.some((t) => t.seq === turn.seq) ? prev : [...prev, turn]));
         index += 1;
-        timers.push(setTimeout(step, 420));
+        timers.push(setTimeout(step, PACE.betweenTurns));
       }, speakMs(turn.textBn, turn.speaker !== "system")));
     };
 
@@ -117,10 +163,25 @@ export default function ConsultationPlayer({
       cancelled = true;
       timers.forEach(clearTimeout);
     };
-  }, [autoStart, runId, turns, onFinished]);
+    // onFinished is deliberately absent: it is read through the ref above.
+  }, [autoStart, runId, turns]);
+
+  /** Jump straight to the verdict: reveal every remaining turn at once. */
+  const skipToEnd = useCallback(() => {
+    stoppedRef.current = true;
+    finishedRef.current = true;
+    setTyping(null);
+    setVisible(turns);
+    setPhase(turns[turns.length - 1]?.phase ?? "close");
+    setPlaying(false);
+    setDone(true);
+    onFinishedRef.current?.();
+  }, [turns]);
 
   const restart = () => {
     finishedRef.current = false;
+    stoppedRef.current = false;
+    firstTurnRef.current = false;
     setVisible([]);
     setTyping(null);
     setDone(false);
@@ -152,7 +213,7 @@ export default function ConsultationPlayer({
           background:#e2e8f0; color:#64748b; }
         .consult-chip.on { background:#047857; color:#fff; }
 
-        .consult-body { max-height:420px; overflow-y:auto; padding:16px 18px;
+        .consult-body { max-height:min(52vh, 460px); overflow-y:auto; padding:16px 18px;
           background:#f8fafc; border-left:1px solid #e2e8f0; border-right:1px solid #e2e8f0;
           display:flex; flex-direction:column; gap:11px; }
         .consult-row { display:flex; gap:9px; align-items:flex-end; }
@@ -196,6 +257,28 @@ export default function ConsultationPlayer({
           <span className="consult-dot live" />
           <span className="consult-dot live" />
         </div>
+        {playing ? (
+          <button
+            type="button"
+            onClick={skipToEnd}
+            className="consult-skip"
+            style={{
+              font: "inherit",
+              fontFamily: "var(--font-bn)",
+              fontSize: "0.75rem",
+              fontWeight: 800,
+              padding: "8px 13px",
+              borderRadius: "9px",
+              border: "1px solid rgba(255,255,255,.55)",
+              background: "rgba(255,255,255,.12)",
+              color: "#fff",
+              cursor: "pointer",
+              whiteSpace: "nowrap",
+            }}
+          >
+            ফলাফল সরাসরি দেখুন ▸
+          </button>
+        ) : null}
         <div style={{ flex: 1, minWidth: 210 }}>
           <h3>
             {playing ? "জেলা লিগ্যাল এইড অফিস থেকে কল — সংলাপ চলছে" : done ? "কথোপকথন সম্পন্ন" : "কল শুরু হয়নি"}
@@ -270,8 +353,8 @@ export default function ConsultationPlayer({
               সংলাপটি আবার দেখুন
             </button>
             {onFinished ? (
-              <button type="button" className="consult-btn" onClick={onFinished}>
-                কেস ও ড্যাশবোর্ডে যান
+              <button type="button" className="consult-btn" onClick={() => onFinishedRef.current?.()}>
+                কেস ও ড্যাশবোর্ডে দেখুন
               </button>
             ) : null}
           </div>
