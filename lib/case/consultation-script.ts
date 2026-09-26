@@ -31,6 +31,7 @@ export type ConsultationPhase =
   | "connect"
   | "identity"
   | "finance"
+  | "evidence"
   | "consultation"
   | "decision"
   | "assignment"
@@ -48,6 +49,8 @@ export interface ConsultationTurn {
   event?: string;
   /** Ms the client should let this turn "speak" for. Set by the client, not here. */
   weight?: number;
+  /** Extra pause in ms after this turn lands, to draw attention. */
+  pauseMs?: number;
 }
 
 export interface ConsultationScript {
@@ -79,6 +82,7 @@ const PHASE_LABEL_BN: Record<ConsultationPhase, string> = {
   connect: "কল সংযোগ",
   identity: "পরিচয় যাচাই",
   finance: "আর্থিক অবস্থা যাচাই",
+  evidence: "প্রমাণ যাচাই",
   consultation: "আনুষ্ঠানিক আলোচনা",
   decision: "সিদ্ধান্ত",
   assignment: "আইনজীবী নিয়োগ",
@@ -104,9 +108,9 @@ export function buildConsultationScript(input: ConsultationInput): ConsultationS
   const turns: ConsultationTurn[] = [];
   let seq = 0;
 
-  const say = (phase: ConsultationPhase, speaker: TurnSpeaker, textBn: string, event?: string) => {
+  const say = (phase: ConsultationPhase, speaker: TurnSpeaker, textBn: string, event?: string, pauseMs?: number) => {
     seq += 1;
-    turns.push({ seq, phase, speaker, textBn, event });
+    turns.push({ seq, phase, speaker, textBn, event, pauseMs });
   };
 
   // 1. connect -----------------------------------------------------------------
@@ -150,7 +154,21 @@ export function buildConsultationScript(input: ConsultationInput): ConsultationS
   say("finance", "dlao", "আপনার আর্থিক অবস্থা ও প্রতিবন্ধিতার তথ্য নথিভুক্ত হয়েছে।", "finance_confirmed");
   say("finance", "applicant", "আমার জন্য এটি খুবই জরুরি, তাই কিছুটা আশ্বাস পেলে ভালো হতো।");
 
-  // 4. consultation ------------------------------------------------------------
+  // 4. evidence ----------------------------------------------------------------
+  say("evidence", "dlao", "আপনার অভিযোগের সমর্থনে কোনো প্রমাণ বা কাগজপত্র জমা দিয়েছিলেন কি?");
+  say("evidence", "applicant", "জি, আমি আবেদনের সাথে কিছু ছবি ও একটি লিখিত বিবরণ জমা দিয়েছিলাম।");
+  say("evidence", "dlao", "আচ্ছা, আমি এখন আপনার জমা দেওয়া প্রমাণগুলো যাচাই করছি...");
+  say(
+    "evidence",
+    "system",
+    "📎 আবেদনকারী কর্তৃক জমাকৃত প্রমাণ: ১টি ছবি, ১টি লিখিত বিবরণ — ডিজিটাল স্বাক্ষর যাচাই সম্পন্ন।",
+    "evidence_verified",
+    1500, // 1.5s pause to catch judge's attention
+  );
+  say("evidence", "dlao", "আপনার জমাকৃত প্রমাণগুলো সফলভাবে যাচাই হয়েছে এবং কেস ফাইলে সংযুক্ত করা হয়েছে।", "evidence_confirmed");
+  say("evidence", "applicant", "ধন্যবাদ, এতে আমার মামলার শক্তি বাড়বে আশা করি।");
+
+  // 5. consultation ------------------------------------------------------------
   say("consultation", "dlao", `আপনার আবেদনে লেখা সমস্যাটি পড়ে নিয়েছি: "${problemStatement}"। এটি ${categoryBn} সংক্রান্ত।`);
   say("consultation", "dlao", "আপনি কি আইনি সহায়তা চান এমন কোনো প্রতিষ্ঠান বা ব্যক্তির সাথে কথা বলেছেন?");
   say("consultation", "applicant", "না, কেউ কিছু বলেনি। আপনাদের ছাড়া আর কোনো উপায় খুঁজে পাইনি।");
@@ -190,6 +208,7 @@ export function buildConsultationScript(input: ConsultationInput): ConsultationS
     "connect",
     "identity",
     "finance",
+    "evidence",
     "consultation",
     "decision",
     "assignment",

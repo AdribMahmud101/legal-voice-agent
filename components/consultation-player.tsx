@@ -28,6 +28,8 @@ const EVENT_BADGE: Record<string, string> = {
   identity_confirmed: "পরিচয় যাচাই সফল",
   finance_confirmed: "আর্থিক তথ্য নথিভুক্ত",
   disability_confirmed: "প্রতিবন্ধিতা স্বীকৃত",
+  evidence_verified: "প্রমাণ যাচাই সম্পন্ন",
+  evidence_confirmed: "প্রমাণ সংযুক্ত",
   act_engaged: "প্রযোজ্য আইন শনাক্ত",
   eligibility_decided: "সহায়তার সিদ্ধান্ত",
   lawyer_assigned: "আইনজীবী নিয়োগ",
@@ -188,7 +190,9 @@ export default function ConsultationPlayer({
         setVisible((prev) => (prev.some((t) => t.seq === turn.seq) ? prev : [...prev, turn]));
         onProgressRef.current?.(turn.seq);
         index += 1;
-        timers.push(setTimeout(step, PACE.betweenTurns));
+        // Extra pause for important turns (e.g., evidence verification) to catch attention
+        const extraPause = turn.pauseMs ?? 0;
+        timers.push(setTimeout(step, PACE.betweenTurns + extraPause));
       }, speakMs(turn.textBn, turn.speaker !== "system")));
     };
 
@@ -271,6 +275,9 @@ export default function ConsultationPlayer({
         @keyframes consult-bounce { 0%,60%,100%{transform:translateY(0);opacity:.45} 30%{transform:translateY(-4px);opacity:1} }
         .consult-badge { display:inline-block; margin-top:6px; font-size:10.5px; font-weight:800;
           padding:3px 8px; border-radius:999px; background:#d1fae5; color:#065f46; }
+        .consult-badge.highlight { background:#fef3c7; color:#92400e; border:2px solid #f59e0b;
+          animation:consult-highlight 1.5s ease-in-out; }
+        @keyframes consult-highlight { 0%{transform:scale(1)} 50%{transform:scale(1.08)} 100%{transform:scale(1)} }
         .consult-verdict { padding:15px 18px; background:#fff; border:1px solid #e2e8f0;
           border-top:0; border-radius:0 0 16px 16px; }
         .consult-act { font-size:12.5px; font-weight:800; color:#0f766e; margin:0 0 8px; }
@@ -342,7 +349,11 @@ export default function ConsultationPlayer({
               <p className="consult-who">{SPEAKER_LABEL[turn.speaker]}</p>
               <div className="consult-bub">
                 {turn.textBn}
-                {turn.event ? <span className="consult-badge">{EVENT_BADGE[turn.event] ?? turn.event}</span> : null}
+                {turn.event ? (
+                  <span className={`consult-badge${turn.event === "evidence_verified" ? " highlight" : ""}`}>
+                    {EVENT_BADGE[turn.event] ?? turn.event}
+                  </span>
+                ) : null}
               </div>
             </div>
           </div>
