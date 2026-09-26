@@ -1,6 +1,8 @@
 import { NextResponse } from "next/server";
 import { getCloudflareContext } from "@opennextjs/cloudflare";
-import type { D1Database } from "@/lib/auth/d1-session";
+import { getD1SessionUser, type D1Database } from "@/lib/auth/d1-session";
+import { getLocalSessionUser } from "@/lib/auth/local-session";
+import type { SessionUser } from "@/lib/auth/roles";
 import { validateBangladeshPhone } from "@/lib/phone/bangladesh-phone";
 import { interpretSemanticBridge } from "@/lib/agent/semantic-bridge/match-lexicon";
 import {
@@ -25,6 +27,20 @@ const AUTH_COOKIE_NAME = "auth_session";
 const AUTH_SESSION_TTL_SECONDS = 30 * 24 * 60 * 60;
 
 type IntakeLanguage = "bn" | "marma" | "chakma";
+
+/**
+ * The POST above is deliberately open — it registers a brand new applicant, so there
+ * is no session to check yet. This GET is the opposite: it reads, so it must be
+ * scoped to the session.
+ */
+async function getRequestUser(request: Request, db: D1Database | null): Promise<SessionUser | null> {
+  const token = request.headers
+    .get("cookie")
+    ?.split("; ")
+    .find((row) => row.startsWith(`${AUTH_COOKIE_NAME}=`))
+    ?.split("=")[1];
+  return (await getD1SessionUser(db, token)) || getLocalSessionUser(token);
+}
 
 function getDatabase(): D1Database | null {
   try {
@@ -61,6 +77,43 @@ function normalizeLanguage(input: unknown): IntakeLanguage {
  * run it server-side instead of trusting the browser. That keeps an urgency that a
  * DLAO triages on from being something a client can simply assert.
  */
+
+/**
+ * The caller's own applications, newest first.
+ *
+ * Exists so the citizen dashboard can find the application to run a consultation
+ * against without the client having to be handed an id by the submit response, which
+ * is lost on a refresh. Scoped to the session user: an applicant must never be able
+ * to enumerate another applicant's applications.
+ */
+export async function GET(request: Request) {
+  try {
+    const db = getDatabase();
+    if (!db) {
+      return NextResponse.json({ ok: false, error: "ডেটাবেস সাময়িকভাবে উপল্লব্ধ নয়।" }, { status: 503 });
+    }
+    const user = await getRequestUser(request, db);
+    if (!user) return NextResponse.json({ ok: false, error: "Unauthorized" }, { status: 401 });
+
+    const rows = await db
+      .prepare(
+        `SELECT a.id, a.application_time, a.problem_statement, a.severity_level, a.severity_category,
+                a.urgency, a.priority, a.case_id, c.docket_id, c.category, c.stage
+         FROM applications a
+         LEFT JOIN cases c ON c.id = a.case_id
+         WHERE a.applicant_user_id = ?
+         ORDER BY a.application_time DESC
+         LIMIT 20`,
+      )
+      .bind(user.id)
+      .all<Record<string, unknown>>();
+
+    return NextResponse.json({ ok: true, applications: rows.results });
+  } catch (err: unknown) {
+    const message = err instanceof Error ? err.message : String(err);
+    return NextResponse.json({ ok: false, error: message }, { status: 500 });
+  }
+}
 
 export async function POST(request: Request) {
   const db = getDatabase();
@@ -134,6 +187,15 @@ export async function POST(request: Request) {
   const language = normalizeLanguage(body.language);
   const hasDisability = body.hasDisability === true ? 1 : 0;
   const gender = String(body.gender || "").trim() || null;
+  // Tri-state on purpose. `null` means the applicant was not asked or did not say,
+  // which is not the same as "no" — the eligibility rules depend on that difference.
+  const employed = body.employed === true ? 1 : body.employed === false ? 0 : null;
+  const rawIncome = Number(body.monthlyIncome);
+  const monthlyIncome = body.monthlyIncome === null || body.monthlyIncome === undefined || body.monthlyIncome === ""
+    ? null
+    : Number.isFinite(rawIncome) && rawIncome >= 0
+      ? Math.trunc(rawIncome)
+      : null;
   const disabilityType = hasDisability ? String(body.disabilityType || "").trim() || null : null;
 
   if (!problem) {
@@ -259,8 +321,8 @@ export async function POST(request: Request) {
                disability_type, gender, address, problem_statement, case_id, source, source_voice_session_id,
                source_language, original_transcript, semantic_matched, semantic_confidence,
                semantic_intent, semantic_normalized_bangla, intake_summary, urgency, priority,
-               severity_level, severity_category, severity_factors_json)
-             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'manual', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+               severity_level, severity_category, severity_factors_json, employed, monthly_income_bdt)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'manual', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
           )
           .bind(
             applicationId,
@@ -286,6 +348,8 @@ export async function POST(request: Request) {
             severity.severity,
             severity.category,
             JSON.stringify(severity.factors),
+            employed,
+            monthlyIncome,
           ),
         db
           .prepare(

@@ -10,6 +10,7 @@ import { EmptyState } from "@/lib/ui/components/EmptyState";
 import { Button } from "@/lib/ui/components/Button";
 import { useVoiceSession } from "@/hooks/use-voice-session";
 import { VerificationCard } from "@/components/identity/verification-card";
+import ConsultationPanel from "@/components/consultation-panel";
 import { VerificationProgressBar } from "@/components/identity/verification-progress";
 import { getStatusVariant, getStatusLabel } from "@/lib/data/case-store";
 import type { PortalCase } from "@/lib/data/case-projection";
@@ -43,6 +44,9 @@ export default function CitizenDashboard() {
       </div>
 
       <VerificationProgressBar className="mb-6" />
+
+      {/* The DLAO callback comes first: it is the step that turns an application into a case. */}
+      <ConsultationPanel applicantName={currentUser?.displayName || "আবেদনকারী"} />
 
       <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(300px, 1fr))", gap: "var(--space-lg)", marginBottom: "var(--space-2xl)" }}>
         <VerificationCard />

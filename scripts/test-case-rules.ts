@@ -51,6 +51,8 @@ import {
   tagForSelection,
 } from "../lib/agent/knowledge/severity-classification";
 import { PROBLEM_CATEGORIES } from "../lib/legal/problem-taxonomy";
+import { assessLegalAidEligibility, MEANS_TEST_MONTHLY_BDT } from "../lib/case/legal-aid-eligibility";
+import { buildConsultationScript, toBanglaDigits } from "../lib/case/consultation-script";
 import {
   assistVerdict,
   createAuditEntry,
@@ -409,6 +411,120 @@ console.log("sensitive-case visibility — DLAO and Chief DLAO only");
   check("no session cannot see sensitive cases", !canSeeSensitiveCases(null));
   check("cdlao resolves to the Chief role", canonicalRole("cdlao") === "chief", String(canonicalRole("cdlao")));
   check("cdlao can therefore see sensitive cases", canSeeSensitiveCases(canonicalRole("cdlao")));
+}
+
+console.log("");
+console.log("legal aid eligibility — the three limbs of the stated rule");
+{
+  // A woman facing online abuse AND financially unable to pursue justice: the
+  // paragraph says she qualifies, and the abuse is the substantive reason.
+  const nabilla = assessLegalAidEligibility({
+    gender: "female",
+    employed: false,
+    monthlyIncome: null,
+    onlineAbuseAgainstWoman: true,
+    categoryId: "cyber",
+    subcategoryId: "y1",
+  });
+  check("woman facing online abuse and means-tested is eligible", nabilla.eligible);
+  check("the abuse is named as the basis, not unemployment", nabilla.basis === "woman_online_abuse", String(nabilla.basis));
+  check("unemployment is still recorded as an additional ground", nabilla.grounds.some((g) => g.code === "unemployed"));
+  check("the cyber limb is decisive here, not conditional", nabilla.conditionalBasis === false);
+  check("an assurance is always produced", nabilla.assuranceBn.length > 10);
+
+  // Protected categories outrank a means ground, because they survive getting a job.
+  const disabled = assessLegalAidEligibility({ gender: "female", hasDisability: true, employed: false });
+  check("disability is a decisive ground", disabled.basis === "person_with_disability", String(disabled.basis));
+  const trafficking = assessLegalAidEligibility({ gender: "female", traffickingRisk: true, categoryId: "cyber" });
+  check("trafficking is a decisive ground", trafficking.basis === "trafficking_victim", String(trafficking.basis));
+  check("trafficking is urgent priority", trafficking.priority === "urgent", trafficking.priority);
+
+  // Neither limb proven -> refused, and the refusal still explains itself.
+  const refused = assessLegalAidEligibility({ gender: "male", employed: true, ableToWork: true, monthlyIncome: 60000 });
+  check("a solvent applicant is not eligible", refused.eligible === false);
+  check("a refusal still carries an assurance", refused.assuranceBn.length > 10);
+  check("a refusal has no basis", refused.basis === null);
+
+  // The cyber limb is genuinely weaker on its own: "particularly where" is binding.
+  const womanAlone = assessLegalAidEligibility({ gender: "female", employed: true, ableToWork: true, monthlyIncome: 50000, onlineAbuseAgainstWoman: true });
+  check("online abuse alone is not enough to be eligible", womanAlone.eligible === false);
+  check("online abuse alone is a conditional basis", womanAlone.conditionalBasis === true);
+  check("a conditional basis is not urgent", womanAlone.priority !== "urgent");
+
+  // The cyber limb belongs to women specifically.
+  const manOnline = assessLegalAidEligibility({ gender: "male", onlineAbuseAgainstWoman: true });
+  check("the protected cyber limb does not extend to men", manOnline.grounds.length === 0);
+
+  // Unknown is not a negative answer.
+  const unknown = assessLegalAidEligibility({ gender: "male", monthlyIncome: null });
+  check("unknown income is not treated as insolvent", !unknown.grounds.some((g) => g.code === "financially_insolvent"));
+  check("unasked questions are not counted as no", !unknown.grounds.some((g) => g.code === "unemployed"));
+
+  // An unrecognised category still yields a statute to quote.
+  const odd = assessLegalAidEligibility({ gender: "male", hasDisability: true, categoryId: "not_a_category" });
+  check("an unknown category still resolves an act", Boolean(odd.act && odd.act.en.length > 0));
+}
+
+console.log("");
+console.log("consultation script — deterministic and driven by the facts");
+{
+  const base = {
+    applicantName: "নাবিলা",
+    phoneLast4: "7556",
+    districtName: "ঢাকা",
+    categoryBn: "সাইবার নিরাপত্তা ও অনলাইন অপরাধ",
+    problemStatement: "অনলাইনে আমাকে যৌনভাবে হয়রানি করা হচ্ছে",
+    dlaoName: "মো. করিম",
+    panelLawyerName: "অ্যাডভোকেট সালমা খাতুন",
+  };
+  const eligibleFacts = {
+    gender: "female",
+    employed: false,
+    monthlyIncome: null,
+    onlineAbuseAgainstWoman: true,
+    categoryId: "cyber",
+    subcategoryId: "y1",
+  };
+  const a = buildConsultationScript({ ...base, facts: eligibleFacts });
+  const b = buildConsultationScript({ ...base, facts: eligibleFacts });
+  check("the same facts produce an identical transcript", JSON.stringify(a) === JSON.stringify(b));
+  check("turn numbering is contiguous from 1", a.turns.every((t, i) => t.seq === i + 1));
+
+  // Every phase the brief asked for is actually present.
+  for (const phase of ["connect", "identity", "finance", "consultation", "decision", "assignment", "close"] as const) {
+    check(`the script contains the ${phase} phase`, a.turns.some((t) => t.phase === phase));
+  }
+  const events = a.turns.map((t) => t.event).filter(Boolean);
+  check("identity is confirmed live", events.includes("identity_confirmed"));
+  check("means are confirmed live", events.includes("finance_confirmed"));
+  check("the act engaged is stated", events.includes("act_engaged"));
+  check("eligibility is decided on the record", events.includes("eligibility_decided"));
+  check("the consultation ends by filing the case", events.includes("consultation_complete"));
+  check("an eligible applicant gets a lawyer", a.appointsPanelLawyer === true);
+  check("the act is quoted for the officer", a.actSentenceBn.length > 0);
+  check("the applicant thanks the officer", a.turns.some((t) => t.phase === "close" && t.speaker === "applicant" && t.textBn.includes("ধন্যবাদ")));
+  check("the applicant is called back, not asked to call", a.turns[0]?.textBn.includes("কল করা হচ্ছে"));
+
+  // The simulation has to be able to go the other way.
+  const refused = buildConsultationScript({
+    ...base,
+    applicantName: "রহিম",
+    facts: { gender: "male", employed: true, ableToWork: true, monthlyIncome: 60000, categoryId: "rent", subcategoryId: "r1" },
+  });
+  check("a solvent applicant is not promised a lawyer", refused.appointsPanelLawyer === false);
+  check("a refusal appoints nobody", !refused.turns.some((t) => t.event === "lawyer_assigned"));
+  check("a refusal is still recorded on the call", refused.turns.some((t) => t.event === "eligibility_decided"));
+  check("a refusal is summarised as such", /পর্যালোচনা|শর্ত পূরণ হয়নি/.test(refused.outcomeSummaryBn), refused.outcomeSummaryBn);
+  check("the two applicants get different transcripts", JSON.stringify(a) !== JSON.stringify(refused));
+
+  // Bangla digits, because this is a spoken transcript.
+  check("digits are spoken in Bangla", toBanglaDigits("7556") === "৭৫৫৬", toBanglaDigits("7556"));
+
+  // No internal identifiers may leak into anything the applicant reads.
+  const spoken = a.turns.map((t) => t.textBn).join(" ");
+  for (const leak of ["woman_online_abuse", "decisive", "Severity", "Category A", "eligible"]) {
+    check(`no internal identifier leaks: ${leak}`, !spoken.includes(leak));
+  }
 }
 
 if (failures.length) {

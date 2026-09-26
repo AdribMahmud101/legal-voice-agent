@@ -89,6 +89,10 @@ interface FormState {
   phone: string;
   address: string;
   district: string;
+  /** Tri-state: "yes" | "no" | "" (unasked). Never coerce "" to "no". */
+  employed: string;
+  /** Blank means unproven, which is not the same as zero income. */
+  monthlyIncome: string;
 }
 
 const INITIAL_FORM: FormState = {
@@ -103,6 +107,8 @@ const INITIAL_FORM: FormState = {
   phone: "",
   address: "",
   district: "",
+  employed: "",
+  monthlyIncome: "",
 };
 
 export function ApplyWizard({ isEnglish, onDone }: ApplyWizardProps) {
@@ -230,6 +236,8 @@ export function ApplyWizard({ isEnglish, onDone }: ApplyWizardProps) {
           phone: form.phone,
           address: form.address.trim(),
           district: form.district,
+          employed: form.employed === "" ? null : form.employed === "yes",
+          monthlyIncome: form.monthlyIncome.trim() === "" ? null : Number(form.monthlyIncome),
         }),
       });
       const payload = await response.json();
@@ -510,6 +518,48 @@ export function ApplyWizard({ isEnglish, onDone }: ApplyWizardProps) {
                   onChange={(event) => update("address", event.target.value)}
                   placeholder={t("বাড়ি, রাস্তা, থানা", "House, road, thana")}
                   autoComplete="street-address"
+                />
+              </label>
+              <fieldset className="ref-fieldset">
+                <legend>
+                  <span>{t("আপনি কি কোনো কাজ করেন?", "Are you currently working?")}</span>
+                </legend>
+                <p className="ref-hint">
+                  {t(
+                    "বিনা মূল্যে আইনি সহায়তার শর্ত যাচাই করতে এই তথ্য প্রয়োজন। প্রতিবন্ধী ব্যক্তি ও নির্চিত আয়ের অধিকারী ব্যক্তির জন্য সহায়তার বিধান আলাদা।",
+                    "We need this to check the free legal aid rules. The provisions for persons with disabilities and for those on a guaranteed income are different.",
+                  )}
+                </p>
+                <div className="ref-choice-list">
+                  <label className="ref-choice">
+                    <input
+                      type="radio"
+                      name="employed"
+                      checked={form.employed === "yes"}
+                      onChange={() => update("employed", "yes")}
+                    />
+                    <span>{t("হ্যাঁ, কোনো কাজ বা আয় আছে", "Yes, I am working or have income")}</span>
+                  </label>
+                  <label className="ref-choice">
+                    <input
+                      type="radio"
+                      name="employed"
+                      checked={form.employed === "no"}
+                      onChange={() => update("employed", "no")}
+                    />
+                    <span>{t("না, কোনো কাজ বা স্থায়ী আয় নেই", "No, I have no work or income")}</span>
+                  </label>
+                </div>
+              </fieldset>
+              <label className="ref-label">
+                <span>{t("সংসারের মাসিক আয় (টাকা)", "Monthly household income (BDT)")}</span>
+                <input
+                  type="number"
+                  min={0}
+                  inputMode="numeric"
+                  value={form.monthlyIncome}
+                  onChange={(event) => update("monthlyIncome", event.target.value)}
+                  placeholder={t("জানা না থাকলে খালি রাখুন", "Leave blank if unknown")}
                 />
               </label>
               <label className="ref-label">
