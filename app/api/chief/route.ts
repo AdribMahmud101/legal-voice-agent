@@ -186,10 +186,12 @@ export async function GET(request: Request) {
     casesResult = await db
       .prepare(
         `SELECT c.id, c.docket_id AS ref, c.status, c.stage, c.problem, c.district,
-                c.category, c.created_at AS createdAt,
-                u.display_name AS applicantName, u.phone
+                c.category, c.created_at AS createdAt, c.assigned_lawyer_id AS assignedLawyerId,
+                u.display_name AS applicantName, u.phone,
+                pl.name_bn AS assignedLawyerName
            FROM cases c
            LEFT JOIN users u ON u.id = c.citizen_user_id
+           LEFT JOIN panel_lawyers pl ON pl.id = c.assigned_lawyer_id
           ORDER BY c.created_at DESC
           LIMIT 200`,
       )
@@ -239,6 +241,30 @@ export async function GET(request: Request) {
     }
   }
 
+  // Lawyer service complaints - open and recent
+  let lawyerComplaints: { results?: Record<string, unknown>[] } = { results: [] };
+  try {
+    lawyerComplaints = await db
+      .prepare(
+        `SELECT lsc.id, lsc.case_id AS caseId, lsc.panel_lawyer_id AS lawyerId,
+                lsc.citizen_user_id AS citizenId, lsc.reason_code AS reasonCode,
+                lsc.details_bn AS details, lsc.status, lsc.created_at AS createdAt,
+                c.docket_id AS caseRef, c.district AS caseDistrict,
+                pl.name_bn AS lawyerName, pl.phone AS lawyerPhone,
+                u.display_name AS citizenName, u.phone AS citizenPhone
+           FROM lawyer_service_complaints lsc
+           LEFT JOIN cases c ON c.id = lsc.case_id
+           LEFT JOIN panel_lawyers pl ON pl.id = lsc.panel_lawyer_id
+           LEFT JOIN users u ON u.id = lsc.citizen_user_id
+          WHERE lsc.status IN ('open', 'in_review')
+          ORDER BY lsc.created_at DESC
+          LIMIT 50`,
+      )
+      .all<Record<string, unknown>>();
+  } catch {
+    // Table may not exist
+  }
+
   // Audit trail - last 7 days
   const since = new Date(Date.now() - 7 * 86_400_000).toISOString();
   const [auditEntries, auditCountsData] = await Promise.all([
@@ -271,6 +297,7 @@ export async function GET(request: Request) {
     cases: casesResult.results ?? [],
     districts: (districtsResult.results ?? []).map((r) => r.district),
     emergencyByDay,
+    lawyerComplaints: lawyerComplaints.results ?? [],
     audit: {
       entries: auditEntries,
       counts: auditCountsData,
@@ -280,9 +307,13 @@ export async function GET(request: Request) {
 }
 
 type ActionBody = {
-  action?: "certify" | "payment_approve" | "payment_reject" | "misconduct_action";
+  action?: "certify" | "payment_approve" | "payment_reject" | "misconduct_action" | "assign_lawyer" | "assign_officer" | "complaint_resolve" | "complaint_reject" | "complaint_escalate";
   id?: string;
   reason?: string;
+  caseId?: string;
+  lawyerId?: string;
+  officerId?: string;
+  resolutionNote?: string;
 };
 
 export async function POST(request: Request) {
@@ -392,6 +423,183 @@ export async function POST(request: Request) {
       detail: "অসদাচরণের রায় লিপিবদ্ধ ও বার কাউন্সিলে প্রেরণ",
     });
     return NextResponse.json({ ok: true });
+  }
+
+  if (body.action === "assign_lawyer") {
+    const caseId = String(body.caseId ?? "");
+    const lawyerId = String(body.lawyerId ?? "");
+    if (!caseId || !lawyerId) {
+      return NextResponse.json({ ok: false, error: "missing_params" }, { status: 400 });
+    }
+
+    // Get lawyer name for audit
+    const lawyer = await db
+      .prepare("SELECT name_bn FROM panel_lawyers WHERE id = ?")
+      .bind(lawyerId)
+      .first<{ name_bn: string }>();
+
+    // Update case with assigned lawyer
+    await db
+      .prepare("UPDATE cases SET assigned_lawyer_id = ? WHERE id = ?")
+      .bind(lawyerId, caseId)
+      .run();
+
+    // Record stage change if moving to lawyer stage
+    await db
+      .prepare(
+        "INSERT INTO case_stage_history (id, case_id, from_stage, to_stage, changed_by, changed_by_role, note, at) VALUES (?, ?, (SELECT stage FROM cases WHERE id = ?), 'lawyer', ?, ?, ?, datetime('now'))",
+      )
+      .bind(
+        `CSH-${Date.now()}`,
+        caseId,
+        caseId,
+        user.id,
+        user.role,
+        `আইনজীবী নিয়োগ: ${lawyer?.name_bn || lawyerId}`,
+      )
+      .run();
+
+    // Update case stage to lawyer
+    await db
+      .prepare("UPDATE cases SET stage = 'lawyer', stage_changed_at = datetime('now') WHERE id = ?")
+      .bind(caseId)
+      .run();
+
+    await writeAudit(db, {
+      kind: AUDIT_KINDS.lawyer_assigned,
+      actorId: user.id,
+      actorRole: user.role,
+      refId: caseId,
+      detail: `প্যানেল আইনজীবী নিয়োগ: ${lawyer?.name_bn || lawyerId}`,
+    });
+    return NextResponse.json({ ok: true });
+  }
+
+  if (body.action === "assign_officer") {
+    const caseId = String(body.caseId ?? "");
+    const officerId = String(body.officerId ?? "");
+    if (!caseId || !officerId) {
+      return NextResponse.json({ ok: false, error: "missing_params" }, { status: 400 });
+    }
+
+    // Get officer name for audit
+    const officer = await db
+      .prepare("SELECT display_name FROM users WHERE id = ?")
+      .bind(officerId)
+      .first<{ display_name: string }>();
+
+    // Record stage change
+    await db
+      .prepare(
+        "INSERT INTO case_stage_history (id, case_id, from_stage, to_stage, changed_by, changed_by_role, note, at) VALUES (?, ?, (SELECT stage FROM cases WHERE id = ?), 'review', ?, ?, ?, datetime('now'))",
+      )
+      .bind(
+        `CSH-${Date.now()}`,
+        caseId,
+        caseId,
+        user.id,
+        user.role,
+        `অফিসার দায়িত্ব: ${officer?.display_name || officerId}`,
+      )
+      .run();
+
+    await writeAudit(db, {
+      kind: AUDIT_KINDS.case_stage_changed,
+      actorId: user.id,
+      actorRole: user.role,
+      refId: caseId,
+      detail: `অফিসার দায়িত্ব দেওয়া হয়েছে: ${officer?.display_name || officerId}`,
+    });
+    return NextResponse.json({ ok: true });
+  }
+
+  // Lawyer complaint actions
+  if (body.action === "complaint_resolve" || body.action === "complaint_reject") {
+    const complaintId = String(body.id ?? "");
+    const resolutionNote = String(body.resolutionNote ?? "").trim();
+    if (!complaintId) {
+      return NextResponse.json({ ok: false, error: "missing_id" }, { status: 400 });
+    }
+    if (!resolutionNote) {
+      return NextResponse.json({ ok: false, error: "reason_required" }, { status: 400 });
+    }
+
+    const newStatus = body.action === "complaint_resolve" ? "resolved" : "rejected";
+    await db
+      .prepare(
+        `UPDATE lawyer_service_complaints
+         SET status = ?, resolution_note_bn = ?, resolved_at = datetime('now'), assigned_to_user_id = ?
+         WHERE id = ? AND status IN ('open', 'in_review')`,
+      )
+      .bind(newStatus, resolutionNote, user.id, complaintId)
+      .run();
+
+    await writeAudit(db, {
+      kind: AUDIT_KINDS.complaint_resolved,
+      actorId: user.id,
+      actorRole: user.role,
+      refId: complaintId,
+      detail: body.action === "complaint_resolve" ? "অভিযোগ সমাধান করা হয়েছে" : "অভিযোগ প্রত্যাখ্যান করা হয়েছে",
+      reason: resolutionNote,
+    });
+    return NextResponse.json({ ok: true });
+  }
+
+  if (body.action === "complaint_escalate") {
+    const complaintId = String(body.id ?? "");
+    if (!complaintId) {
+      return NextResponse.json({ ok: false, error: "missing_id" }, { status: 400 });
+    }
+
+    // Get complaint details for misconduct case
+    const complaint = await db
+      .prepare(
+        `SELECT lsc.*, pl.name_bn AS lawyer_name, c.docket_id AS case_ref
+         FROM lawyer_service_complaints lsc
+         LEFT JOIN panel_lawyers pl ON pl.id = lsc.panel_lawyer_id
+         LEFT JOIN cases c ON c.id = lsc.case_id
+         WHERE lsc.id = ?`,
+      )
+      .bind(complaintId)
+      .first<Record<string, unknown>>();
+
+    if (!complaint) {
+      return NextResponse.json({ ok: false, error: "not_found" }, { status: 404 });
+    }
+
+    // Create misconduct case
+    const misconductId = `MC-${crypto.randomUUID()}`;
+    await db
+      .prepare(
+        `INSERT INTO misconduct_cases (id, panel_lawyer_id, complainant_id, source, allegation, verdict)
+         VALUES (?, ?, ?, 'service_complaint', ?, 'open')`,
+      )
+      .bind(
+        misconductId,
+        complaint.panel_lawyer_id,
+        complaint.citizen_user_id,
+        `অভিযোগ থেকে উত্থাপিত: ${complaint.reason_code} - ${complaint.details_bn || "বিস্তারিত নেই"}`,
+      )
+      .run();
+
+    // Update complaint status
+    await db
+      .prepare(
+        `UPDATE lawyer_service_complaints
+         SET status = 'resolved', resolution_note_bn = 'কমিটিতে প্রেরণ করা হয়েছে', resolved_at = datetime('now'), assigned_to_user_id = ?
+         WHERE id = ?`,
+      )
+      .bind(user.id, complaintId)
+      .run();
+
+    await writeAudit(db, {
+      kind: AUDIT_KINDS.complaint_resolved,
+      actorId: user.id,
+      actorRole: user.role,
+      refId: complaintId,
+      detail: `অভিযোগ কমিটিতে প্রেরণ করা হয়েছে - অসদাচরণ মামলা: ${misconductId}`,
+    });
+    return NextResponse.json({ ok: true, misconductId });
   }
 
   return NextResponse.json({ ok: false, error: "unknown_action" }, { status: 400 });

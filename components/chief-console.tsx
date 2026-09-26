@@ -78,6 +78,25 @@ type Case = {
   severity: string | null;
   category: string | null;
   createdAt: string | null;
+  assignedLawyerId: string | null;
+  assignedLawyerName: string | null;
+};
+
+type LawyerComplaint = {
+  id: string;
+  caseId: string | null;
+  lawyerId: string | null;
+  citizenId: string | null;
+  reasonCode: string;
+  details: string | null;
+  status: string;
+  createdAt: string;
+  caseRef: string | null;
+  caseDistrict: string | null;
+  lawyerName: string | null;
+  lawyerPhone: string | null;
+  citizenName: string | null;
+  citizenPhone: string | null;
 };
 
 type AuditEntry = {
@@ -117,6 +136,7 @@ type ChiefData = {
   cases: Case[];
   districts: string[];
   emergencyByDay: { day: string; count: number }[];
+  lawyerComplaints: LawyerComplaint[];
   audit: {
     entries: AuditEntry[];
     counts: Record<string, number>;
@@ -126,6 +146,7 @@ type ChiefData = {
 
 const TABS = [
   { id: "overview", label: "সারসংক্ষেপ" },
+  { id: "complaints", label: "অভিযোগ" },
   { id: "cases", label: "সব মামলা" },
   { id: "certify", label: "প্রত্যায়ন" },
   { id: "payments", label: "পেমেন্ট অনুমোদন" },
@@ -134,6 +155,17 @@ const TABS = [
   { id: "misconduct", label: "অসদাচরণ" },
   { id: "audit", label: "অডিট ট্রেইল" },
 ] as const;
+
+/** Bangla labels for complaint reason codes */
+const COMPLAINT_REASON_LABELS: Record<string, string> = {
+  not_contacted: "আইনজীবী যোগাযোগ করেননি",
+  too_slow: "অনেক দেরিতে কাজ হচ্ছে",
+  not_listening: "আমার কথা ভালোভাবে শোনেন না",
+  unprofessional: "আচরণ পেশাদার নয়",
+  demanded_money: "অর্থ চেয়েছেন",
+  refused_after_assignment: "নিয়োগের পর কাজ করতে অস্বীকার করেছেন",
+  other: "অন্য কোনো কারণ",
+};
 
 type TabId = (typeof TABS)[number]["id"];
 
@@ -185,6 +217,21 @@ export default function ChiefConsole() {
     severity: "",
     search: "",
   });
+  const [lawyerSearch, setLawyerSearch] = useState("");
+  const [officerSearch, setOfficerSearch] = useState("");
+  const [complaintModal, setComplaintModal] = useState<{
+    open: boolean;
+    complaint: LawyerComplaint | null;
+    action: "resolve" | "reject" | "escalate" | null;
+  }>({ open: false, complaint: null, action: null });
+  const [complaintNote, setComplaintNote] = useState("");
+  const [assignModal, setAssignModal] = useState<{
+    open: boolean;
+    type: "lawyer" | "officer" | null;
+    caseId?: string;
+    lawyerId?: string;
+    officerId?: string;
+  }>({ open: false, type: null });
 
   const load = useCallback(async () => {
     const res = await fetch("/api/chief", { cache: "no-store" });
@@ -244,6 +291,83 @@ export default function ChiefConsole() {
     }
   }, [router]);
 
+  const handleAssign = useCallback(async () => {
+    if (!assignModal.type || !assignModal.caseId) return;
+    setBusy("assign");
+    setToast(null);
+
+    const body: Record<string, string> = { caseId: assignModal.caseId };
+    if (assignModal.type === "lawyer" && assignModal.lawyerId) {
+      body.action = "assign_lawyer";
+      body.lawyerId = assignModal.lawyerId;
+    } else if (assignModal.type === "officer" && assignModal.officerId) {
+      body.action = "assign_officer";
+      body.officerId = assignModal.officerId;
+    } else {
+      setBusy(null);
+      setToast({ tone: "warn", text: "দয়া করে একটি নির্বাচন করুন।" });
+      return;
+    }
+
+    const res = await fetch("/api/chief", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify(body),
+    });
+    setBusy(null);
+
+    if (res.ok) {
+      setToast({ tone: "ok", text: assignModal.type === "lawyer" ? "আইনজীবী নিয়োগ সম্পন্ন!" : "অফিসার দায়িত্ব দেওয়া হয়েছে!" });
+      setAssignModal({ open: false, type: null });
+      await load();
+    } else {
+      setToast({ tone: "warn", text: "কাজটি সম্পন্ন হয়নি।" });
+    }
+  }, [assignModal, load]);
+
+  const handleComplaintAction = useCallback(async () => {
+    if (!complaintModal.complaint || !complaintModal.action) return;
+
+    if (complaintModal.action !== "escalate" && !complaintNote.trim()) {
+      setToast({ tone: "warn", text: "অনুগ্রহ করে নোট লিখুন।" });
+      return;
+    }
+
+    setBusy("complaint");
+    setToast(null);
+
+    const actionMap = {
+      resolve: "complaint_resolve",
+      reject: "complaint_reject",
+      escalate: "complaint_escalate",
+    };
+
+    const res = await fetch("/api/chief", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        action: actionMap[complaintModal.action],
+        id: complaintModal.complaint.id,
+        resolutionNote: complaintNote || "কমিটিতে প্রেরণ",
+      }),
+    });
+    setBusy(null);
+
+    if (res.ok) {
+      const messages = {
+        resolve: "অভিযোগ সমাধান করা হয়েছে!",
+        reject: "অভিযোগ প্রত্যাখ্যান করা হয়েছে!",
+        escalate: "অভিযোগ কমিটিতে প্রেরণ করা হয়েছে!",
+      };
+      setToast({ tone: "ok", text: messages[complaintModal.action] });
+      setComplaintModal({ open: false, complaint: null, action: null });
+      setComplaintNote("");
+      await load();
+    } else {
+      setToast({ tone: "warn", text: "কাজটি সম্পন্ন হয়নি।" });
+    }
+  }, [complaintModal, complaintNote, load]);
+
   if (denied) {
     return (
       <main className="mx-auto max-w-2xl px-4 py-16 text-center">
@@ -285,13 +409,21 @@ export default function ChiefConsole() {
               ভূমিকা: {isChairman ? "জেলা কমিটির চেয়ারম্যান" : "চীফ লিগ্যাল এইড অফিসার"}
             </p>
           </div>
-          <button
-            onClick={handleLogout}
-            disabled={loggingOut}
-            className="flex items-center gap-2 rounded-lg border border-slate-300 bg-white px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50 disabled:opacity-50"
-          >
-            {loggingOut ? "..." : "লগ আউট"}
-          </button>
+          <div className="flex items-center gap-3">
+            <a
+              href="/chief/lawyer-rating-monitor"
+              className="flex items-center gap-2 rounded-lg border border-blue-300 bg-blue-50 px-4 py-2 text-sm font-medium text-blue-700 hover:bg-blue-100"
+            >
+              আইনজীবী মনিটর
+            </a>
+            <button
+              onClick={handleLogout}
+              disabled={loggingOut}
+              className="flex items-center gap-2 rounded-lg border border-slate-300 bg-white px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50 disabled:opacity-50"
+            >
+              {loggingOut ? "..." : "লগ আউট"}
+            </button>
+          </div>
         </div>
       </header>
 
@@ -301,6 +433,51 @@ export default function ChiefConsole() {
             ? `⚠ ${data.slaBreaches} টি পেমেন্ট অনুমোদন SLA উত্তীর্ণ করেছে।`
             : `⚠ ${data.slaWarning} টি পেমেন্ট অনুমোদন SLA-র কাছাকাছি (২ দিন বাকি)।`}
         </p>
+      )}
+
+      {/* Red danger banner for lawyer complaints */}
+      {data.lawyerComplaints.length > 0 && (
+        <div className="mt-4 rounded-xl border-2 border-red-400 bg-gradient-to-r from-red-50 to-red-100 p-4 shadow-sm">
+          <div className="flex items-start gap-4">
+            <div className="flex h-12 w-12 flex-shrink-0 items-center justify-center rounded-full bg-red-500 text-2xl text-white shadow-md">
+              🚨
+            </div>
+            <div className="flex-1">
+              <div className="flex items-center justify-between">
+                <h2 className="text-lg font-bold text-red-800">
+                  আইনজীবী সংক্রান্ত অভিযোগ
+                </h2>
+                <span className="rounded-full bg-red-500 px-3 py-1 text-sm font-bold text-white">
+                  {data.lawyerComplaints.length} টি খোলা
+                </span>
+              </div>
+              <p className="mt-1 text-sm text-red-700">
+                নাগরিকদের কাছ থেকে প্যানেল আইনজীবীদের বিরুদ্ধে অভিযোগ এসেছে। অনুগ্রহ করে পর্যালোচনা করুন।
+              </p>
+              <div className="mt-3 flex flex-wrap gap-2">
+                {data.lawyerComplaints.slice(0, 3).map((c) => (
+                  <button
+                    key={c.id}
+                    onClick={() => setComplaintModal({ open: true, complaint: c, action: null })}
+                    className="inline-flex items-center gap-2 rounded-lg border border-red-300 bg-white px-3 py-1.5 text-xs font-medium text-red-700 transition-colors hover:bg-red-50"
+                  >
+                    <span className="font-semibold">{c.lawyerName || "আইনজীবী"}</span>
+                    <span className="text-red-400">•</span>
+                    <span>{COMPLAINT_REASON_LABELS[c.reasonCode] || c.reasonCode}</span>
+                  </button>
+                ))}
+                {data.lawyerComplaints.length > 3 && (
+                  <button
+                    onClick={() => setTab("complaints")}
+                    className="inline-flex items-center gap-1 rounded-lg bg-red-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-red-700"
+                  >
+                    সব দেখুন ({data.lawyerComplaints.length})
+                  </button>
+                )}
+              </div>
+            </div>
+          </div>
+        </div>
       )}
 
       {toast && (
@@ -551,6 +728,88 @@ export default function ChiefConsole() {
         </section>
       )}
 
+      {tab === "complaints" && (
+        <section className="mt-5">
+          <div className="mb-4">
+            <h2 className="text-sm font-semibold text-red-800">আইনজীবী সংক্রান্ত অভিযোগ</h2>
+            <p className="text-xs text-slate-500">
+              নাগরিকদের কাছ থেকে প্যানেল আইনজীবীদের বিরুদ্ধে অভিযোগ
+            </p>
+          </div>
+
+          {data.lawyerComplaints.length === 0 ? (
+            <div className="rounded-xl border border-slate-200 bg-slate-50 p-8 text-center">
+              <div className="mx-auto mb-3 flex h-12 w-12 items-center justify-center rounded-full bg-emerald-100 text-xl">
+                ✓
+              </div>
+              <p className="text-sm text-slate-500">কোনো খোলা অভিযোগ নেই</p>
+            </div>
+          ) : (
+            <div className="space-y-3">
+              {data.lawyerComplaints.map((complaint) => (
+                <div
+                  key={complaint.id}
+                  className="rounded-xl border-2 border-red-200 bg-white p-4 transition-all hover:border-red-300 hover:shadow-md"
+                >
+                  <div className="flex flex-wrap items-start justify-between gap-4">
+                    <div className="flex-1">
+                      <div className="flex items-center gap-3">
+                        <div className="flex h-10 w-10 items-center justify-center rounded-full bg-red-100 text-lg">
+                          ⚠️
+                        </div>
+                        <div>
+                          <p className="font-semibold text-red-800">
+                            {complaint.lawyerName || "আইনজীবী"}
+                          </p>
+                          <p className="text-xs text-slate-500">
+                            {complaint.lawyerPhone || "ফোন নেই"}
+                          </p>
+                        </div>
+                      </div>
+                      <div className="mt-3 rounded-lg bg-red-50 p-3">
+                        <p className="text-sm font-medium text-red-700">
+                          {COMPLAINT_REASON_LABELS[complaint.reasonCode] || complaint.reasonCode}
+                        </p>
+                        {complaint.details && (
+                          <p className="mt-1 text-sm text-slate-600">{complaint.details}</p>
+                        )}
+                      </div>
+                      <div className="mt-3 flex flex-wrap gap-4 text-xs text-slate-500">
+                        <span>📋 মামলা: {complaint.caseRef || complaint.caseId?.slice(0, 8) || "—"}</span>
+                        <span>📍 জেলা: {complaint.caseDistrict || "—"}</span>
+                        <span>👤 অভিযোগকারী: {complaint.citizenName || "—"}</span>
+                        <span>📞 {complaint.citizenPhone || "—"}</span>
+                        <span>🕐 {new Date(complaint.createdAt).toLocaleDateString("bn-BD")}</span>
+                      </div>
+                    </div>
+                    <div className="flex flex-col gap-2">
+                      <button
+                        onClick={() => setComplaintModal({ open: true, complaint, action: "resolve" })}
+                        className="rounded-lg bg-emerald-600 px-4 py-2 text-xs font-medium text-white hover:bg-emerald-700"
+                      >
+                        ✓ সমাধান
+                      </button>
+                      <button
+                        onClick={() => setComplaintModal({ open: true, complaint, action: "reject" })}
+                        className="rounded-lg border border-slate-300 px-4 py-2 text-xs font-medium text-slate-600 hover:bg-slate-50"
+                      >
+                        ✗ প্রত্যাখ্যান
+                      </button>
+                      <button
+                        onClick={() => setComplaintModal({ open: true, complaint, action: "escalate" })}
+                        className="rounded-lg bg-red-600 px-4 py-2 text-xs font-medium text-white hover:bg-red-700"
+                      >
+                        ⚡ কমিটিতে প্রেরণ
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </section>
+      )}
+
       {tab === "certify" && (
         <section className="mt-5 space-y-3">
           <p className="text-sm text-slate-600">
@@ -640,7 +899,7 @@ export default function ChiefConsole() {
 
       {tab === "panel" && (
         <section className="mt-5">
-          <div className="mb-4 flex items-center justify-between">
+          <div className="mb-4 flex flex-wrap items-center justify-between gap-4">
             <div>
               <h2 className="text-sm font-semibold">প্যানেল আইনজীবী</h2>
               <p className="text-xs text-slate-500">
@@ -652,65 +911,109 @@ export default function ChiefConsole() {
             </span>
           </div>
 
-          {data.panelLawyers.length === 0 ? (
-            <div className="rounded-xl border border-slate-200 bg-slate-50 p-8 text-center">
-              <div className="mx-auto mb-3 flex h-12 w-12 items-center justify-center rounded-full bg-slate-100 text-xl">
-                ⚖️
-              </div>
-              <p className="text-sm text-slate-500">প্যানেলে কোনো আইনজীবী নেই</p>
-            </div>
-          ) : (
-            <div className="overflow-hidden rounded-xl border border-slate-200">
-              <table className="w-full text-sm">
-                <thead className="bg-slate-50">
-                  <tr className="border-b border-slate-200 text-left text-xs font-medium text-slate-600">
-                    <th className="px-4 py-3">আইনজীবী</th>
-                    <th className="px-4 py-3">বার আইডি</th>
-                    <th className="px-4 py-3">বিশেষত্ব</th>
-                    <th className="px-4 py-3">জেলা</th>
-                    <th className="px-4 py-3">স্ট্যাটাস</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-slate-100">
-                  {data.panelLawyers.map((lawyer) => (
-                    <tr key={lawyer.id} className="transition-colors hover:bg-slate-50">
-                      <td className="px-4 py-3">
-                        <div className="flex items-center gap-3">
-                          <div className="flex h-9 w-9 items-center justify-center rounded-full bg-gradient-to-br from-amber-500 to-amber-600 text-sm font-bold text-white">
-                            {(lawyer.name || "?").charAt(0)}
-                          </div>
-                          <div>
-                            <p className="font-medium text-slate-800">{lawyer.name || "—"}</p>
-                            <p className="text-xs text-slate-400">{lawyer.phone || ""}</p>
-                          </div>
-                        </div>
-                      </td>
-                      <td className="px-4 py-3 font-mono text-xs text-slate-600">
-                        {lawyer.barId || "—"}
-                      </td>
-                      <td className="px-4 py-3 text-slate-600">
-                        {lawyer.specialization || "সাধারণ"}
-                      </td>
-                      <td className="px-4 py-3 text-slate-600">
-                        {lawyer.district || "—"}
-                      </td>
-                      <td className="px-4 py-3">
-                        <span className={`inline-block rounded-full px-2 py-0.5 text-xs font-medium ${
-                          lawyer.status === "on_panel" || lawyer.status === "active"
-                            ? "bg-emerald-100 text-emerald-700"
-                            : lawyer.status === "pending" || lawyer.status === "proposed"
-                              ? "bg-amber-100 text-amber-700"
-                              : "bg-slate-100 text-slate-600"
-                        }`}>
-                          {lawyer.status === "on_panel" || lawyer.status === "active" ? "সক্রিয়" : lawyer.status === "pending" || lawyer.status === "proposed" ? "অপেক্ষমাণ" : lawyer.status || "—"}
-                        </span>
-                      </td>
+          {/* Search bar */}
+          <div className="mb-4">
+            <input
+              type="text"
+              placeholder="নাম, বার আইডি বা জেলা খুঁজুন..."
+              value={lawyerSearch}
+              onChange={(e) => setLawyerSearch(e.target.value)}
+              className="w-full max-w-md rounded-lg border border-slate-300 px-3 py-2 text-sm placeholder:text-slate-400"
+            />
+          </div>
+
+          {(() => {
+            const filteredLawyers = data.panelLawyers.filter((l) => {
+              if (!lawyerSearch) return true;
+              const search = lawyerSearch.toLowerCase();
+              return (
+                l.name?.toLowerCase().includes(search) ||
+                l.barId?.toLowerCase().includes(search) ||
+                l.district?.toLowerCase().includes(search) ||
+                l.specialization?.toLowerCase().includes(search)
+              );
+            });
+
+            if (filteredLawyers.length === 0) {
+              return (
+                <div className="rounded-xl border border-slate-200 bg-slate-50 p-8 text-center">
+                  <div className="mx-auto mb-3 flex h-12 w-12 items-center justify-center rounded-full bg-slate-100 text-xl">
+                    ⚖️
+                  </div>
+                  <p className="text-sm text-slate-500">
+                    {lawyerSearch ? "কোনো আইনজীবী পাওয়া যায়নি" : "প্যানেলে কোনো আইনজীবী নেই"}
+                  </p>
+                </div>
+              );
+            }
+
+            return (
+              <div className="overflow-hidden rounded-xl border border-slate-200">
+                <table className="w-full text-sm">
+                  <thead className="bg-slate-50">
+                    <tr className="border-b border-slate-200 text-left text-xs font-medium text-slate-600">
+                      <th className="px-4 py-3">আইনজীবী</th>
+                      <th className="px-4 py-3">বার আইডি</th>
+                      <th className="px-4 py-3">বিশেষত্ব</th>
+                      <th className="px-4 py-3">জেলা</th>
+                      <th className="px-4 py-3">স্ট্যাটাস</th>
+                      <th className="px-4 py-3">নিয়োগ</th>
                     </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          )}
+                  </thead>
+                  <tbody className="divide-y divide-slate-100">
+                    {filteredLawyers.map((lawyer) => (
+                      <tr key={lawyer.id} className="transition-colors hover:bg-slate-50">
+                        <td className="px-4 py-3">
+                          <div className="flex items-center gap-3">
+                            <div className="flex h-9 w-9 items-center justify-center rounded-full bg-gradient-to-br from-amber-500 to-amber-600 text-sm font-bold text-white">
+                              {(lawyer.name || "?").charAt(0)}
+                            </div>
+                            <div>
+                              <p className="font-medium text-slate-800">{lawyer.name || "—"}</p>
+                              <p className="text-xs text-slate-400">{lawyer.phone || ""}</p>
+                            </div>
+                          </div>
+                        </td>
+                        <td className="px-4 py-3 font-mono text-xs text-slate-600">
+                          {lawyer.barId || "—"}
+                        </td>
+                        <td className="px-4 py-3 text-slate-600">
+                          {lawyer.specialization || "সাধারণ"}
+                        </td>
+                        <td className="px-4 py-3 text-slate-600">
+                          {lawyer.district || "—"}
+                        </td>
+                        <td className="px-4 py-3">
+                          <span className={`inline-block rounded-full px-2 py-0.5 text-xs font-medium ${
+                            lawyer.status === "on_panel" || lawyer.status === "active"
+                              ? "bg-emerald-100 text-emerald-700"
+                              : lawyer.status === "pending" || lawyer.status === "proposed"
+                                ? "bg-amber-100 text-amber-700"
+                                : "bg-slate-100 text-slate-600"
+                          }`}>
+                            {lawyer.status === "on_panel" || lawyer.status === "active" ? "সক্রিয়" : lawyer.status === "pending" || lawyer.status === "proposed" ? "অপেক্ষমাণ" : lawyer.status || "—"}
+                          </span>
+                        </td>
+                        <td className="px-4 py-3">
+                          {(lawyer.status === "on_panel" || lawyer.status === "active") && (
+                            <button
+                              onClick={() =>
+                                setAssignModal({ open: true, type: "lawyer", lawyerId: lawyer.id })
+                              }
+                              className="rounded bg-blue-100 px-2 py-1 text-[10px] font-medium text-blue-700 hover:bg-blue-200"
+                              title="মামলায় নিয়োগ করুন"
+                            >
+                              📋 মামলায় নিয়োগ
+                            </button>
+                          )}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            );
+          })()}
         </section>
       )}
 
@@ -723,66 +1026,106 @@ export default function ChiefConsole() {
             </p>
           </div>
 
-          {data.officers.length === 0 ? (
-            <div className="rounded-xl border border-slate-200 bg-slate-50 p-8 text-center">
-              <div className="mx-auto mb-3 flex h-12 w-12 items-center justify-center rounded-full bg-slate-100 text-xl">
-                👤
-              </div>
-              <p className="text-sm text-slate-500">কোনো সক্রিয় অফিসার নেই</p>
-            </div>
-          ) : (
-            <div className="overflow-hidden rounded-xl border border-slate-200">
-              <table className="w-full text-sm">
-                <thead className="bg-slate-50">
-                  <tr className="border-b border-slate-200 text-left text-xs font-medium text-slate-600">
-                    <th className="px-4 py-3">অফিসার</th>
-                    <th className="px-4 py-3">ভূমিকা</th>
-                    <th className="px-4 py-3 text-center">নিষ্পত্তি</th>
-                    <th className="px-4 py-3 text-center">চলমান</th>
-                    <th className="px-4 py-3">পারফরম্যান্স</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-slate-100">
-                  {data.officers.map((officer, idx) => (
-                    <tr key={officer.id} className="transition-colors hover:bg-slate-50">
-                      <td className="px-4 py-3">
-                        <div className="flex items-center gap-3">
-                          <div className="flex h-9 w-9 items-center justify-center rounded-full bg-gradient-to-br from-blue-500 to-blue-600 text-sm font-bold text-white">
-                            {officer.name.charAt(0)}
-                          </div>
-                          <p className="font-medium text-slate-800">{officer.name}</p>
-                        </div>
-                      </td>
-                      <td className="px-4 py-3 text-slate-600">
-                        {officer.role || "লিগ্যাল এইড অফিসার"}
-                      </td>
-                      <td className="px-4 py-3 text-center">
-                        <span className="text-lg font-semibold text-emerald-600">{officer.handled}</span>
-                      </td>
-                      <td className="px-4 py-3 text-center">
-                        <span className="text-lg font-semibold text-blue-600">{officer.openCases}</span>
-                      </td>
-                      <td className="px-4 py-3">
-                        <div className="flex items-center gap-2">
-                          <div className="h-2 w-24 overflow-hidden rounded-full bg-slate-200">
-                            <div
-                              className="h-full rounded-full bg-gradient-to-r from-emerald-400 to-emerald-500"
-                              style={{ width: `${Math.min(100, (officer.handled / Math.max(1, data.officers[0]?.handled || 1)) * 100)}%` }}
-                            />
-                          </div>
-                          {idx === 0 && (
-                            <span className="rounded-full bg-amber-100 px-2 py-0.5 text-[10px] font-bold text-amber-700">
-                              শীর্ষ
-                            </span>
-                          )}
-                        </div>
-                      </td>
+          {/* Search bar */}
+          <div className="mb-4">
+            <input
+              type="text"
+              placeholder="নাম বা ভূমিকা খুঁজুন..."
+              value={officerSearch}
+              onChange={(e) => setOfficerSearch(e.target.value)}
+              className="w-full max-w-md rounded-lg border border-slate-300 px-3 py-2 text-sm placeholder:text-slate-400"
+            />
+          </div>
+
+          {(() => {
+            const filteredOfficers = data.officers.filter((o) => {
+              if (!officerSearch) return true;
+              const search = officerSearch.toLowerCase();
+              return (
+                o.name?.toLowerCase().includes(search) ||
+                o.role?.toLowerCase().includes(search)
+              );
+            });
+
+            if (filteredOfficers.length === 0) {
+              return (
+                <div className="rounded-xl border border-slate-200 bg-slate-50 p-8 text-center">
+                  <div className="mx-auto mb-3 flex h-12 w-12 items-center justify-center rounded-full bg-slate-100 text-xl">
+                    👤
+                  </div>
+                  <p className="text-sm text-slate-500">
+                    {officerSearch ? "কোনো অফিসার পাওয়া যায়নি" : "কোনো সক্রিয় অফিসার নেই"}
+                  </p>
+                </div>
+              );
+            }
+
+            return (
+              <div className="overflow-hidden rounded-xl border border-slate-200">
+                <table className="w-full text-sm">
+                  <thead className="bg-slate-50">
+                    <tr className="border-b border-slate-200 text-left text-xs font-medium text-slate-600">
+                      <th className="px-4 py-3">অফিসার</th>
+                      <th className="px-4 py-3">ভূমিকা</th>
+                      <th className="px-4 py-3 text-center">নিষ্পত্তি</th>
+                      <th className="px-4 py-3 text-center">চলমান</th>
+                      <th className="px-4 py-3">পারফরম্যান্স</th>
+                      <th className="px-4 py-3">নিয়োগ</th>
                     </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          )}
+                  </thead>
+                  <tbody className="divide-y divide-slate-100">
+                    {filteredOfficers.map((officer, idx) => (
+                      <tr key={officer.id} className="transition-colors hover:bg-slate-50">
+                        <td className="px-4 py-3">
+                          <div className="flex items-center gap-3">
+                            <div className="flex h-9 w-9 items-center justify-center rounded-full bg-gradient-to-br from-blue-500 to-blue-600 text-sm font-bold text-white">
+                              {officer.name.charAt(0)}
+                            </div>
+                            <p className="font-medium text-slate-800">{officer.name}</p>
+                          </div>
+                        </td>
+                        <td className="px-4 py-3 text-slate-600">
+                          {officer.role || "লিগ্যাল এইড অফিসার"}
+                        </td>
+                        <td className="px-4 py-3 text-center">
+                          <span className="text-lg font-semibold text-emerald-600">{officer.handled}</span>
+                        </td>
+                        <td className="px-4 py-3 text-center">
+                          <span className="text-lg font-semibold text-blue-600">{officer.openCases}</span>
+                        </td>
+                        <td className="px-4 py-3">
+                          <div className="flex items-center gap-2">
+                            <div className="h-2 w-24 overflow-hidden rounded-full bg-slate-200">
+                              <div
+                                className="h-full rounded-full bg-gradient-to-r from-emerald-400 to-emerald-500"
+                                style={{ width: `${Math.min(100, (officer.handled / Math.max(1, filteredOfficers[0]?.handled || 1)) * 100)}%` }}
+                              />
+                            </div>
+                            {idx === 0 && (
+                              <span className="rounded-full bg-amber-100 px-2 py-0.5 text-[10px] font-bold text-amber-700">
+                                শীর্ষ
+                              </span>
+                            )}
+                          </div>
+                        </td>
+                        <td className="px-4 py-3">
+                          <button
+                            onClick={() =>
+                              setAssignModal({ open: true, type: "officer", officerId: officer.id })
+                            }
+                            className="rounded bg-emerald-100 px-2 py-1 text-[10px] font-medium text-emerald-700 hover:bg-emerald-200"
+                            title="মামলা দায়িত্ব দিন"
+                          >
+                            📋 মামলা দায়িত্ব
+                          </button>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            );
+          })()}
         </section>
       )}
 
@@ -889,6 +1232,7 @@ export default function ChiefConsole() {
                       <th className="px-4 py-3">জরুরিতা</th>
                       <th className="px-4 py-3">ক্যাটাগরি</th>
                       <th className="px-4 py-3">তারিখ</th>
+                      <th className="px-4 py-3">নিয়োগ</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-100">
@@ -942,6 +1286,37 @@ export default function ChiefConsole() {
                         </td>
                         <td className="px-4 py-3 text-xs text-slate-500">
                           {c.createdAt ? new Date(c.createdAt).toLocaleDateString("bn-BD") : "—"}
+                        </td>
+                        <td className="px-4 py-3">
+                          <div className="flex flex-col gap-1">
+                            {c.assignedLawyerId ? (
+                              <span
+                                className="inline-flex items-center gap-1 rounded bg-emerald-100 px-2 py-1 text-[10px] font-medium text-emerald-700"
+                                title={c.assignedLawyerName || "নিয়োগকৃত"}
+                              >
+                                ✓ আইনজীবী নিয়োগকৃত
+                              </span>
+                            ) : (
+                              <button
+                                onClick={() =>
+                                  setAssignModal({ open: true, type: "lawyer", caseId: c.id })
+                                }
+                                className="rounded bg-amber-100 px-2 py-1 text-[10px] font-medium text-amber-700 hover:bg-amber-200"
+                                title="আইনজীবী নিয়োগ করুন"
+                              >
+                                ⚖️ আইনজীবী
+                              </button>
+                            )}
+                            <button
+                              onClick={() =>
+                                setAssignModal({ open: true, type: "officer", caseId: c.id })
+                              }
+                              className="rounded bg-blue-100 px-2 py-1 text-[10px] font-medium text-blue-700 hover:bg-blue-200"
+                              title="অফিসার দায়িত্ব দিন"
+                            >
+                              👤 অফিসার
+                            </button>
+                          </div>
                         </td>
                       </tr>
                     ))}
@@ -1109,6 +1484,258 @@ export default function ChiefConsole() {
             >
               বন্ধ করুন
             </button>
+          </div>
+        </div>
+      )}
+
+      {/* Assignment Modal */}
+      {assignModal.open && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4"
+          onClick={() => setAssignModal({ open: false, type: null })}
+        >
+          <div
+            className="w-full max-w-md rounded-xl bg-white p-6 shadow-xl"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="mb-4 flex items-start justify-between">
+              <h3 className="text-lg font-semibold">
+                {assignModal.type === "lawyer" ? "আইনজীবী নিয়োগ" : "অফিসার দায়িত্ব"}
+              </h3>
+              <button
+                onClick={() => setAssignModal({ open: false, type: null })}
+                className="text-slate-400 hover:text-slate-600"
+              >
+                ✕
+              </button>
+            </div>
+
+            <div className="space-y-4">
+              {/* Case Selection - only if not pre-selected */}
+              {!assignModal.caseId && (
+                <div>
+                  <label className="mb-1 block text-sm font-medium text-slate-700">মামলা নির্বাচন করুন</label>
+                  <select
+                    className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm"
+                    value={assignModal.caseId || ""}
+                    onChange={(e) => setAssignModal((m) => ({ ...m, caseId: e.target.value }))}
+                  >
+                    <option value="">-- মামলা বাছুন --</option>
+                    {data.cases.map((c) => (
+                      <option key={c.id} value={c.id}>
+                        {c.ref || c.id.slice(0, 8)} - {c.applicantName || c.district || "—"}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              )}
+
+              {/* Selected Case Display */}
+              {assignModal.caseId && (
+                <div className="rounded-lg bg-slate-50 p-3">
+                  <p className="text-xs font-medium text-slate-500">নির্বাচিত মামলা</p>
+                  <p className="mt-1 text-sm font-semibold text-slate-800">
+                    {data.cases.find((c) => c.id === assignModal.caseId)?.ref ||
+                      assignModal.caseId.slice(0, 8)}
+                  </p>
+                </div>
+              )}
+
+              {/* Lawyer Selection */}
+              {assignModal.type === "lawyer" && (
+                <div>
+                  <label className="mb-1 block text-sm font-medium text-slate-700">আইনজীবী নির্বাচন করুন</label>
+                  <select
+                    className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm"
+                    value={assignModal.lawyerId || ""}
+                    onChange={(e) => setAssignModal((m) => ({ ...m, lawyerId: e.target.value }))}
+                  >
+                    <option value="">-- আইনজীবী বাছুন --</option>
+                    {data.panelLawyers
+                      .filter((l) => l.status === "on_panel" || l.status === "active")
+                      .map((l) => (
+                        <option key={l.id} value={l.id}>
+                          {l.name || "—"} ({l.district || "—"})
+                        </option>
+                      ))}
+                  </select>
+                </div>
+              )}
+
+              {/* Officer Selection */}
+              {assignModal.type === "officer" && (
+                <div>
+                  <label className="mb-1 block text-sm font-medium text-slate-700">অফিসার নির্বাচন করুন</label>
+                  <select
+                    className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm"
+                    value={assignModal.officerId || ""}
+                    onChange={(e) => setAssignModal((m) => ({ ...m, officerId: e.target.value }))}
+                  >
+                    <option value="">-- অফিসার বাছুন --</option>
+                    {data.officers.map((o) => (
+                      <option key={o.id} value={o.id}>
+                        {o.name} (নিষ্পত্তি: {o.handled}, চলমান: {o.openCases})
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              )}
+            </div>
+
+            <div className="mt-6 flex gap-3">
+              <button
+                onClick={() => setAssignModal({ open: false, type: null })}
+                className="flex-1 rounded-lg border border-slate-300 py-2.5 text-sm font-medium text-slate-700 hover:bg-slate-50"
+              >
+                বাতিল
+              </button>
+              <button
+                onClick={handleAssign}
+                disabled={
+                  busy === "assign" ||
+                  !assignModal.caseId ||
+                  (assignModal.type === "lawyer" && !assignModal.lawyerId) ||
+                  (assignModal.type === "officer" && !assignModal.officerId)
+                }
+                className="flex-1 rounded-lg bg-blue-600 py-2.5 text-sm font-medium text-white hover:bg-blue-700 disabled:bg-slate-300"
+              >
+                {busy === "assign" ? "..." : "নিয়োগ করুন"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Complaint Action Modal */}
+      {complaintModal.open && complaintModal.complaint && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4"
+          onClick={() => {
+            setComplaintModal({ open: false, complaint: null, action: null });
+            setComplaintNote("");
+          }}
+        >
+          <div
+            className="w-full max-w-lg rounded-xl bg-white p-6 shadow-xl"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="mb-4 flex items-start justify-between">
+              <h3 className="text-lg font-semibold text-red-800">
+                {complaintModal.action === "resolve" ? "অভিযোগ সমাধান" :
+                 complaintModal.action === "reject" ? "অভিযোগ প্রত্যাখ্যান" :
+                 complaintModal.action === "escalate" ? "কমিটিতে প্রেরণ" : "অভিযোগ বিস্তারিত"}
+              </h3>
+              <button
+                onClick={() => {
+                  setComplaintModal({ open: false, complaint: null, action: null });
+                  setComplaintNote("");
+                }}
+                className="text-slate-400 hover:text-slate-600"
+              >
+                ✕
+              </button>
+            </div>
+
+            {/* Complaint Details */}
+            <div className="mb-4 rounded-lg border-2 border-red-200 bg-red-50 p-4">
+              <div className="flex items-center gap-3">
+                <div className="flex h-10 w-10 items-center justify-center rounded-full bg-red-200 text-lg">
+                  ⚠️
+                </div>
+                <div>
+                  <p className="font-semibold text-red-800">
+                    {complaintModal.complaint.lawyerName || "আইনজীবী"}
+                  </p>
+                  <p className="text-sm text-red-700">
+                    {COMPLAINT_REASON_LABELS[complaintModal.complaint.reasonCode] || complaintModal.complaint.reasonCode}
+                  </p>
+                </div>
+              </div>
+              {complaintModal.complaint.details && (
+                <p className="mt-3 text-sm text-slate-700">{complaintModal.complaint.details}</p>
+              )}
+              <div className="mt-3 flex flex-wrap gap-3 text-xs text-slate-600">
+                <span>👤 {complaintModal.complaint.citizenName || "অভিযোগকারী"}</span>
+                <span>📋 {complaintModal.complaint.caseRef || "—"}</span>
+                <span>🕐 {new Date(complaintModal.complaint.createdAt).toLocaleDateString("bn-BD")}</span>
+              </div>
+            </div>
+
+            {/* Action Selection (if not pre-selected) */}
+            {!complaintModal.action && (
+              <div className="mb-4 flex gap-2">
+                <button
+                  onClick={() => setComplaintModal((m) => ({ ...m, action: "resolve" }))}
+                  className="flex-1 rounded-lg bg-emerald-600 py-2 text-sm font-medium text-white hover:bg-emerald-700"
+                >
+                  ✓ সমাধান
+                </button>
+                <button
+                  onClick={() => setComplaintModal((m) => ({ ...m, action: "reject" }))}
+                  className="flex-1 rounded-lg border border-slate-300 py-2 text-sm font-medium text-slate-600 hover:bg-slate-50"
+                >
+                  ✗ প্রত্যাখ্যান
+                </button>
+                <button
+                  onClick={() => setComplaintModal((m) => ({ ...m, action: "escalate" }))}
+                  className="flex-1 rounded-lg bg-red-600 py-2 text-sm font-medium text-white hover:bg-red-700"
+                >
+                  ⚡ কমিটিতে
+                </button>
+              </div>
+            )}
+
+            {/* Resolution Note */}
+            {complaintModal.action && complaintModal.action !== "escalate" && (
+              <div className="mb-4">
+                <label className="mb-1 block text-sm font-medium text-slate-700">
+                  {complaintModal.action === "resolve" ? "সমাধানের বিবরণ" : "প্রত্যাখ্যানের কারণ"}
+                </label>
+                <textarea
+                  value={complaintNote}
+                  onChange={(e) => setComplaintNote(e.target.value)}
+                  placeholder="বিস্তারিত লিখুন..."
+                  rows={3}
+                  className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm"
+                />
+              </div>
+            )}
+
+            {complaintModal.action === "escalate" && (
+              <div className="mb-4 rounded-lg bg-amber-50 p-3 text-sm text-amber-800">
+                <p className="font-semibold">⚠️ সতর্কতা</p>
+                <p className="mt-1">এই অভিযোগ জেলা কমিটিতে অসদাচরণ মামলা হিসেবে প্রেরণ করা হবে। এটি একটি গুরুতর পদক্ষেপ।</p>
+              </div>
+            )}
+
+            {/* Action Buttons */}
+            {complaintModal.action && (
+              <div className="flex gap-3">
+                <button
+                  onClick={() => {
+                    setComplaintModal({ open: false, complaint: null, action: null });
+                    setComplaintNote("");
+                  }}
+                  className="flex-1 rounded-lg border border-slate-300 py-2.5 text-sm font-medium text-slate-700 hover:bg-slate-50"
+                >
+                  বাতিল
+                </button>
+                <button
+                  onClick={handleComplaintAction}
+                  disabled={busy === "complaint" || (complaintModal.action !== "escalate" && !complaintNote.trim())}
+                  className={`flex-1 rounded-lg py-2.5 text-sm font-medium text-white disabled:bg-slate-300 ${
+                    complaintModal.action === "resolve" ? "bg-emerald-600 hover:bg-emerald-700" :
+                    complaintModal.action === "escalate" ? "bg-red-600 hover:bg-red-700" :
+                    "bg-slate-600 hover:bg-slate-700"
+                  }`}
+                >
+                  {busy === "complaint" ? "..." :
+                   complaintModal.action === "resolve" ? "সমাধান করুন" :
+                   complaintModal.action === "reject" ? "প্রত্যাখ্যান করুন" :
+                   "কমিটিতে প্রেরণ করুন"}
+                </button>
+              </div>
+            )}
           </div>
         </div>
       )}

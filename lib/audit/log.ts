@@ -47,6 +47,14 @@ export const AUDIT_KINDS = {
   lawyer_reassigned: "lawyer.reassign",
   complaint_filed: "complaint.filed",
   complaint_resolved: "complaint.resolved",
+  // Lawyer accountability
+  show_cause_issued: "lawyer.show_cause_issued",
+  show_cause_resolved: "lawyer.show_cause_resolved",
+  payment_frozen: "lawyer.payment_frozen",
+  payment_unfrozen: "lawyer.payment_unfrozen",
+  lawyer_flagged: "lawyer.flagged",
+  flag_cleared: "lawyer.flag_cleared",
+  sla_violation: "lawyer.sla_violation",
   // Money and mediation
   payment_approved: "payment.approved",
   mediation_scheduled: "mediation.scheduled",

@@ -61,19 +61,15 @@ export interface RoleDefinition {
   group: RoleGroupId;
   /** Superseded keys that mean the same thing. Kept working, hidden from the picker. */
   legacyKeys?: string[];
+  /** Short parenthetical shown next to the title in the login picker only. */
+  loginAnnotationBn?: string;
 }
 
 export const ROLE_DEFINITIONS: RoleDefinition[] = [
   // ---- District office
-  {
-    key: "dlao",
-    titleBn: "লিগ্যাল এইড অফিসার",
-    titleEn: "Legal Aid Officer",
-    scopeBn: "একটি জেলা কার্যালয় — দৈনন্দিন মামলা কাজ",
-    scopeEn: "One district office — day-to-day case work",
-    group: "district",
-    legacyKeys: ["dlao_officer"],
-  },
+  // Chief is listed before the plain DLAO: it is the supervisory/admin seat, so
+  // it belongs at the top of the picker rather than in the array's alphabetical
+  // fall-through order.
   {
     key: "chief",
     titleBn: "চীফ লিগ্যাল এইড অফিসার",
@@ -84,6 +80,17 @@ export const ROLE_DEFINITIONS: RoleDefinition[] = [
     // "cdlao" is the abbreviation officers actually use for the Chief DLAO, and it
     // is what staff type when they mean this role.
     legacyKeys: ["chief_legal_aid_officer", "cdlao"],
+    loginAnnotationBn: "Admin",
+  },
+  {
+    key: "dlao",
+    titleBn: "লিগ্যাল এইড অফিসার",
+    titleEn: "Legal Aid Officer",
+    scopeBn: "একটি জেলা কার্যালয় — দৈনন্দিন মামলা কাজ",
+    scopeEn: "One district office — day-to-day case work",
+    group: "district",
+    legacyKeys: ["dlao_officer"],
+    loginAnnotationBn: "dlao",
   },
   {
     key: "chairman",

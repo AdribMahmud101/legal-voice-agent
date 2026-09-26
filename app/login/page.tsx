@@ -65,25 +65,27 @@ function LoginContent() {
     }
   };
 
-  const handleStaffLogin = async () => {
+  // One click on a role card logs in immediately — no separate confirm button.
+  // `selectedRole` still tracks which card is mid-request so it can show its own
+  // loading state while the others stay disabled.
+  const handleStaffLogin = async (role: StaffRole) => {
+    setSelectedRole(role);
     setIsStaffLoading(true);
     setStaffError("");
 
     try {
-      if (!selectedRole) throw new Error("প্রথমে একটি রোল নির্বাচন করুন।");
       const res = await fetch("/api/portal/login", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ role: selectedRole }),
+        body: JSON.stringify({ role }),
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || "Login failed");
-      
+
       // Court-side roles land on the lawyer workspace, everyone else on the DLAO one.
-      window.location.href = homePathForRole(selectedRole);
+      window.location.href = homePathForRole(role);
     } catch (err) {
       setStaffError(err instanceof Error ? err.message : "Unknown error");
-    } finally {
       setIsStaffLoading(false);
     }
   };
@@ -307,36 +309,46 @@ function LoginContent() {
                     >
                       ← সব গ্রুপ দেখুন
                     </button>
-                    {rolesInGroup(selectedGroup).map((role) => (
-                      <button
-                        key={role.key}
-                        type="button"
-                        onClick={() => setSelectedRole(role.key as StaffRole)}
-                        style={{
-                          display: "flex",
-                          flexDirection: "column",
-                          alignItems: "flex-start",
-                          gap: 3,
-                          padding: "var(--space-md)",
-                          borderRadius: "var(--radius-md)",
-                          border: `1.5px solid ${selectedRole === role.key ? "var(--portal-accent)" : "var(--portal-border)"}`,
-                          backgroundColor: selectedRole === role.key ? "var(--portal-accent-subtle)" : "var(--portal-white)",
-                          cursor: "pointer",
-                          textAlign: "left",
-                          transition: "all var(--transition-fast)",
-                        }}
-                      >
-                        <span style={{ fontFamily: "var(--font-bn)", fontWeight: 700, fontSize: "0.9375rem", color: "var(--portal-text)" }}>
-                          {role.titleBn}
-                        </span>
-                        <span style={{ fontFamily: "var(--font-bn)", fontSize: "0.8125rem", color: "var(--portal-text-secondary)" }}>
-                          {role.scopeBn}
-                        </span>
-                        <span style={{ fontSize: "0.6875rem", color: "var(--portal-text-secondary)", opacity: 0.75 }}>
-                          {MOCK_ROLE_IDENTITIES[role.key as StaffRole]?.displayName}
-                        </span>
-                      </button>
-                    ))}
+                    {rolesInGroup(selectedGroup).map((role) => {
+                      const isThisRoleLoading = isStaffLoading && selectedRole === role.key;
+                      return (
+                        <button
+                          key={role.key}
+                          type="button"
+                          disabled={isStaffLoading}
+                          onClick={() => handleStaffLogin(role.key as StaffRole)}
+                          style={{
+                            display: "flex",
+                            flexDirection: "column",
+                            alignItems: "flex-start",
+                            gap: 3,
+                            padding: "var(--space-md)",
+                            borderRadius: "var(--radius-md)",
+                            border: `1.5px solid ${selectedRole === role.key ? "var(--portal-accent)" : "var(--portal-border)"}`,
+                            backgroundColor: selectedRole === role.key ? "var(--portal-accent-subtle)" : "var(--portal-white)",
+                            cursor: isStaffLoading ? "default" : "pointer",
+                            textAlign: "left",
+                            opacity: isStaffLoading && !isThisRoleLoading ? 0.5 : 1,
+                            transition: "all var(--transition-fast)",
+                          }}
+                        >
+                          <span style={{ fontFamily: "var(--font-bn)", fontWeight: 700, fontSize: "0.9375rem", color: "var(--portal-text)" }}>
+                            {role.titleBn}
+                            {role.loginAnnotationBn && (
+                              <span style={{ fontWeight: 600, color: "var(--portal-accent-text)" }}>
+                                {" "}({role.loginAnnotationBn})
+                              </span>
+                            )}
+                          </span>
+                          <span style={{ fontFamily: "var(--font-bn)", fontSize: "0.8125rem", color: "var(--portal-text-secondary)" }}>
+                            {role.scopeBn}
+                          </span>
+                          <span style={{ fontSize: "0.6875rem", color: "var(--portal-text-secondary)", opacity: 0.75 }}>
+                            {isThisRoleLoading ? "লগইন হচ্ছে..." : MOCK_ROLE_IDENTITIES[role.key as StaffRole]?.displayName}
+                          </span>
+                        </button>
+                      );
+                    })}
                   </div>
                 )}
                 {staffError && (
@@ -345,14 +357,6 @@ function LoginContent() {
                   </p>
                 )}
               </div>
-              <Button
-                onClick={handleStaffLogin}
-                fullWidth
-                loading={isStaffLoading}
-                disabled={!selectedRole}
-              >
-                {selectedRole ? "স্টাফ পোর্টালে প্রবেশ করুন" : "প্রথমে একটি রোল নির্বাচন করুন"}
-              </Button>
             </div>
           )}
         </CardContent>
