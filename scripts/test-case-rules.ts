@@ -57,6 +57,8 @@ import {
   type ApplicantFacts,
 } from "../lib/case/legal-aid-eligibility";
 import { buildConsultationScript, toBanglaDigits } from "../lib/case/consultation-script";
+import { readFileSync } from "node:fs";
+import { resolve } from "node:path";
 import { filterLawyers, rankLawyers, type LawyerSummary } from "../lib/case/lawyer-assignment";
 import { recommendLawyers, summariseRecommendation } from "../lib/case/lawyer-recommendation";
 import {
@@ -667,6 +669,25 @@ console.log("lawyer recommendation — a specialist always leads, and every scor
   const empty = summariseRecommendation({ categoryId: "cyber", categoryBn: "সাইবার" }, []);
   check("an empty roster is stated plainly", /নিয়োগযোগ্য কোনো আইনজীবী নেই/.test(empty), empty);
   check("no internal code leaks into the summary", !empty.includes("specialisation") && !empty.includes("score"));
+}
+
+console.log("");
+console.log("roster at scale — the generator is deterministic and produces a usable roster");
+{
+  const sql = readFileSync(resolve("migrations/0025_panel_roster.sql"), "utf8");
+  const rows = sql.match(/^  \('PL-\d+'/gm) ?? [];
+  check("the roster is large enough to search", rows.length >= 100, `${rows.length} lawyers`);
+
+  const ids = [...sql.matchAll(/\('(PL-\d+)'/g)].map((m) => m[1]);
+  check("lawyer ids are unique", new Set(ids).size === ids.length, `${new Set(ids).size}/${ids.length}`);
+  check("ids are stable and re-runnable", sql.includes("INSERT OR IGNORE INTO panel_lawyers"));
+
+  const districts = [...new Set([...sql.matchAll(/'(ঢাকা|চট্টগ্রাম|সিলেট|রাজশাহী|খুলনা|বরিশাল|সিলেট|রাজনীপুল|ময়মনসিংহ|কুমিল্লা|বগুড়া|জয়পুরহাট|নাটোর|নওগাঁ|চাঁপাইনবাবগঞ্জ|কক্সবাজার|ফেনী|নোয়াখালী|লক্ষ্মীপুর|খাগড়াছড়ি|বান্দরবান|রাঙ্গামাটি|মৌলভীবাজার|গাজীপুর|মানিকগঞ্জ|মুন্সিগঞ্জ|কিশোরগঞ্জ|টাঙ্গাইল|ঠাকুরগাঁও|সিরাজগঞ্জ|মাদারীপুর|শরীয়তপুর|ভোলাহাট|পাবনা|সাঁওয়া|নাটোর|কুড়িগ্রাম|লালমনিরহাট|জামালপুর|শেরপুর|নেত্রকোণা|রাণীশংকৈল|কুড়িগ্রাম|ব্রাহ্মণবাড়িয়া|চাঁদপুর|গাইবান্ধা|নীলফামারী|দিনাজপুর|ঠাকুরগাঁও|গাইবান্ধা|মৌলভীবাজার|কুমিল্লা|চাঁপাইনবাবগঞ্জ|ব্রাহ্মণবাড়িয়া|লক্ষ্মীপুর|কিশোরগঞ্জ|নোয়াখালী|ফেনী|খাগড়াছড়ি|বান্দরবান|রাঙ্গামাটি|চাঁদপুর|বগুড়া|নওগাঁ|নাটোর|জয়পুরহাট|চাঁপাইনবাবগঞ্জ|মৌলভীবাজার|কুমিল্লা|মানিকগঞ্জ|মুন্সিগঞ্জ|গাজীপুর|টাঙ্গাইল|ফরিদপুর|গোপালগঞ্জ|রাজবাড়ী|কুষ্টিয়া|কক্সবাজার|পটুয়াখালী|ভোলাহাট|পাবনা|সিরাজগঞ্জ|ঠাকুরগাঁও|জামালপুর|শেরপুর|নেত্রকোণা|রংপুর|দিনাজপুর|ঠাকুরগাঁও|উত্তরবঙ্গ|নেত্রকোণা|দিনাজপুর|কুড়িগ্রাম|লালমনিরহাট|রাণীশংকৈল|নীলফামারী|গাইবান্ধা|জামালপুর|মৌলভীবাজার|মাদারীপুর|শরীয়তপুর|রাজনীপুল|ময়মনসিংহ|খুলনা|যশোর|সাতক্ষীরা|পাবনা|ঝিনাইদহ|চুয়াডাঙ্গা|মেহেরপুর|বাজাহর|কুষ্টিয়া)'/g)].map(m=>m[1]))];
+  check("lawyers span many districts", districts.length >= 30, `${districts.length} districts`);
+  check("the roster includes the cyber specialisation", sql.includes("সাইবার"));
+  check("the roster includes land", sql.includes("জমি"));
+  check("the roster includes labour", sql.includes("শ্রম আইন"));
+  check("some lawyers are not assignable yet", sql.includes("'proposed'"), "no non-on_panel rows");
 }
 
 if (failures.length) {

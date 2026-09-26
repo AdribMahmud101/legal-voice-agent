@@ -35,6 +35,7 @@ import {
 import { filterLawyers, type LawyerSummary } from "@/lib/case/lawyer-assignment";
 import type { LawyerRecommendation } from "@/lib/case/lawyer-recommendation";
 import { RiskBadgeRow } from "@/components/risk-badges";
+import { AiSparkleBadge, SuggestionLoader, SkeletonRow } from "@/components/ai-assist";
 import type { PortalCase } from "@/lib/data/case-projection";
 
 interface Recommendation {
@@ -43,18 +44,6 @@ interface Recommendation {
   categoryBn: string | null;
   headlineBn: string;
   items: LawyerRecommendation[];
-}
-
-function SkeletonRow() {
-  return (
-    <div className="sac-row" aria-hidden>
-      <div className="sac-av" style={{ background: "#e2e8f0" }} />
-      <div style={{ flex: 1, minWidth: 150 }}>
-        <div className="sac-skel" style={{ width: "46%" }} />
-        <div className="sac-skel" style={{ width: "68%" }} />
-      </div>
-    </div>
-  );
 }
 
 export default function DlaoAssignmentWorkbench({
@@ -73,6 +62,9 @@ export default function DlaoAssignmentWorkbench({
   const [busy, setBusy] = useState<string | null>(null);
   const [notice, setNotice] = useState<{ tone: "ok" | "err"; text: string } | null>(null);
   const [showAll, setShowAll] = useState(false);
+  // A brief "matching" beat while a search term is applied, so filtering a large
+  // roster does not read as the list being stuck.
+  const [searching, setSearching] = useState(false);
 
   const openCases = useMemo(
     () => cases.filter((c) => c.status !== "closed" && c.status !== "resolved"),
@@ -128,6 +120,13 @@ export default function DlaoAssignmentWorkbench({
       cancelled = true;
     };
   }, [selectedCase]);
+
+  // Clear the "matching" beat shortly after typing stops.
+  useEffect(() => {
+    if (!searching) return;
+    const t = setTimeout(() => setSearching(false), 500);
+    return () => clearTimeout(t);
+  }, [query, searching]);
 
   const visibleLawyers = useMemo(() => filterLawyers(lawyers, query), [lawyers, query]);
   const recommendedIds = useMemo(
@@ -267,12 +266,10 @@ export default function DlaoAssignmentWorkbench({
 
         <div className="sac-card">
           <div className="sac-hd">
-            <span className="sac-ic" style={{ background: "#ede9fe", color: "#6d28d9" }}>
-              <Brain size={17} strokeWidth={2.3} aria-hidden />
-            </span>
+            <AiSparkleBadge size={32} />
             <div style={{ minWidth: 0 }}>
-              <h2 className="sac-ht">এইচ সাধারণীকরণ</h2>
-              <p className="sac-hs">তীব্রতা ও অগ্রাধিকার</p>
+              <h2 className="sac-ht">এইচ সহায়তা</h2>
+              <p className="sac-hs">মামলার বিশ্লেষণ, তীব্রতা ও অগ্রাধিকার</p>
             </div>
           </div>
           <div className="sac-bd">
@@ -319,9 +316,7 @@ export default function DlaoAssignmentWorkbench({
       <div style={{ display: "grid", gap: 16 }}>
         <div className="sac-card">
           <div className="sac-hd">
-            <span className="sac-ic" style={{ background: "#fef3c7", color: "#b45309" }}>
-              <Sparkles size={17} strokeWidth={2.3} aria-hidden />
-            </span>
+            <AiSparkleBadge size={32} />
             <div style={{ minWidth: 0 }}>
               <h2 className="sac-ht">এইচ পরামর্শ — উপযুক্ত আইনজীবী</h2>
               <p className="sac-hs">বিশেষায়ন, জেলা ও ভার — এই তিনটির ভিত্তিতে</p>
@@ -332,10 +327,13 @@ export default function DlaoAssignmentWorkbench({
             <div className="sac-empty">একটি কেস বেছে নিলে সুপারিশ দেখা যাবে।</div>
           ) : loadingRec ? (
             <div className="sac-bd">
-              <div className="sac-look" role="status" aria-live="polite">
-                <Loader2 size={17} className="sac-spin" strokeWidth={2.4} aria-hidden />
-                <span>উপযুক্ত ও উপলভ্য আইনজীবী খোঁজা হচ্ছে…</span>
-              </div>
+              <SuggestionLoader
+                caseLabel={activeCase ? `${activeCase.docketId} · ${activeCase.applicantName}` : null}
+                problemType={
+                  recommendation?.categoryBn ??
+                  (activeCase ? (activeCase.problemStatement?.split(":")[1]?.trim() ?? activeCase.problemStatement) : null)
+                }
+              />
               <div style={{ marginTop: 12 }}>
                 <SkeletonRow />
                 <SkeletonRow />
@@ -393,14 +391,30 @@ export default function DlaoAssignmentWorkbench({
                 style={{ paddingLeft: 36 }}
                 placeholder="আইনজীবী খুঁজুন…"
                 value={query}
-                onChange={(e) => setQuery(e.target.value)}
+                onChange={(e) => {
+                  setQuery(e.target.value);
+                  setSearching(true);
+                }}
+                onBlur={() => setSearching(false)}
                 aria-label="আইনজীবী খুঁজুন"
               />
             </div>
           </div>
 
-          {loadingRoster ? (
+          {loadingRoster || searching ? (
             <>
+              {searching ? (
+                <div style={{ padding: "11px 15px 0" }}>
+                  <div className="sac-look" role="status" aria-live="polite" style={{ padding: "9px 11px" }}>
+                    <Loader2 size={15} className="sac-spin" strokeWidth={2.4} aria-hidden />
+                    <span style={{ fontSize: 12.5 }}>
+                      {activeCase
+                        ? `${activeCase.docketId}-এর জন্য সম্পূর্ণ তালিকা থেকে মিলিয়ে দেখা হচ্ছে…`
+                        : "তালিকা থেকে মিলিয়ে দেখা হচ্ছে…"}
+                    </span>
+                  </div>
+                </div>
+              ) : null}
               <SkeletonRow />
               <SkeletonRow />
               <SkeletonRow />
