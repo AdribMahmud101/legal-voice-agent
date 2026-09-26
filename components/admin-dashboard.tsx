@@ -117,41 +117,6 @@ function when(iso: string): string {
   return `${Math.round(mins / 1440)} দিন আগে`;
 }
 
-/**
- * A server-side gate in front of the client dashboard.
- *
- * The API refuses a non-administrator, but the route should not render a shell that
- * will only fail its first fetch. `chief` is the system administrator; the `admin`
- * role is a systems account and `chairman` is a committee seat, so neither reaches it.
- */
-import { redirect } from "next/navigation";
-import { headers } from "next/headers";
-import { getD1SessionUser, type D1Database } from "@/lib/auth/d1-session";
-import { getLocalSessionUser } from "@/lib/auth/local-session";
-import { isSystemAdministrator } from "@/lib/auth/screen-guard";
-
-export const dynamic = "force-dynamic";
-
-function adminDb(): D1Database | null {
-  try {
-    const { getCloudflareContext } = require("@opennextjs/cloudflare") as {
-      getCloudflareContext: () => { env?: { DB?: D1Database } };
-    };
-    return getCloudflareContext().env?.DB ?? null;
-  } catch {
-    return null;
-  }
-}
-
-async function AdminGate() {
-  const h = await headers();
-  const token = h.get("cookie")?.split("; ").find((r) => r.startsWith("auth_session="))?.split("=")[1];
-  const user = (await getD1SessionUser(adminDb(), token)) || getLocalSessionUser(token);
-  if (!user) redirect("/login?tab=staff");
-  if (!isSystemAdministrator(user.role)) redirect("/chief");
-  return null;
-}
-
 export default function AdminDashboard() {
   const router = useRouter();
   const [tab, setTab] = useState<"audit" | "people" | "health">("health");

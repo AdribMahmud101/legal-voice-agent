@@ -4,6 +4,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { DlaoShell, type DlaoTab } from "@/lib/ui/shell/DlaoShell";
 import DlaoAssignmentWorkbench from "@/components/dlao-assignment-workbench";
+import { useVoiceSession } from "@/hooks/use-voice-session";
 import AiAssistCallout from "@/components/ai-assist-callout";
 import type { PortalCase } from "@/lib/data/case-projection";
 
@@ -49,6 +50,7 @@ function getVisibleCases(cases: PortalCase[], tab: DlaoTab): PortalCase[] {
 }
 
 export default function DlaoDashboard() {
+  const { currentUser } = useVoiceSession();
   const [cases, setCases] = useState<PortalCase[]>([]);
   const [activeTab, setActiveTab] = useState<DlaoTab>("applications");
   const [loading, setLoading] = useState(true);
@@ -92,7 +94,12 @@ export default function DlaoDashboard() {
   const nearCount = cases.filter((item) => getSlaState(item.applicationTime) === "near").length;
 
   return (
-    <DlaoShell activeTab={activeTab} onTabChange={setActiveTab} tabCounts={{ new: pendingCount, cases: caseCount, panel: panelCount }}>
+    <DlaoShell
+        activeTab={activeTab}
+        onTabChange={setActiveTab}
+        tabCounts={{ new: pendingCount, cases: caseCount, panel: panelCount }}
+        role={currentUser?.role ?? null}
+      >
       <h1 className="dlao-page-heading">
         {activeTab === "lawyers" ? "এইচ পরামর্শ কেন্দ্র" : "আবেদন"}
       </h1>

@@ -2,6 +2,7 @@
 
 import Image from "next/image";
 import Link from "next/link";
+import { isSystemAdministrator } from "@/lib/auth/screen-guard";
 import { useState, type ReactNode } from "react";
 import { AgentFab } from "./AgentFab";
 import BuildStamp from "@/components/build-stamp";
@@ -12,6 +13,8 @@ interface DlaoShellProps {
   children: ReactNode;
   activeTab?: DlaoTab;
   onTabChange?: (tab: DlaoTab) => void;
+  /** Current role, so the system-administration tab is only offered to the Chief DLAO. */
+  role?: string | null;
   tabCounts?: {
     new: number;
     cases: number;
@@ -47,7 +50,7 @@ function todayBn(): string {
   }
 }
 
-export function DlaoShell({ children, activeTab, onTabChange, tabCounts }: DlaoShellProps) {
+export function DlaoShell({ children, activeTab, onTabChange, tabCounts, role }: DlaoShellProps) {
   const [localTab, setLocalTab] = useState<DlaoTab>(activeTab || "applications");
   const [language, setLanguage] = useState<"bn" | "en">("bn");
   const currentTab = activeTab || localTab;
@@ -107,6 +110,14 @@ export function DlaoShell({ children, activeTab, onTabChange, tabCounts }: DlaoS
 
       <nav className="dlao-tabs" aria-label="DLAO sections">
         <div className="dlao-shell-width dlao-tabs-inner">
+          {isSystemAdministrator(role) ? (
+            <Link
+              href="/admin"
+              style={{ display: "inline-flex", alignItems: "center", gap: 6 }}
+            >
+              সিস্টেম প্রশাসন
+            </Link>
+          ) : null}
           {TABS.map((tab) => {
             const count = tab.id === "new" ? tabCounts?.new : tab.id === "cases" ? tabCounts?.cases : tab.id === "panel" ? tabCounts?.panel : undefined;
             return (

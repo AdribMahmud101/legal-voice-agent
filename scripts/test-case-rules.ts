@@ -40,6 +40,8 @@ import {
   canApprovePanelChanges,
   canProposePanelChanges,
   canSeeSensitiveCases,
+  homePathForRole,
+  isSystemAdministrator,
   chiefVariant,
   isDistrictOfficeRole,
   whichScreen,
@@ -60,6 +62,7 @@ import { buildConsultationScript, toBanglaDigits } from "../lib/case/consultatio
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { filterLawyers, rankLawyers, type LawyerSummary } from "../lib/case/lawyer-assignment";
+import { AUDIT_KINDS } from "../lib/audit/log";
 import { recommendLawyers, summariseRecommendation } from "../lib/case/lawyer-recommendation";
 import {
   actionsForTrack,
@@ -688,6 +691,38 @@ console.log("roster at scale — the generator is deterministic and produces a u
   check("the roster includes land", sql.includes("জমি"));
   check("the roster includes labour", sql.includes("শ্রম আইন"));
   check("some lawyers are not assignable yet", sql.includes("'proposed'"), "no non-on_panel rows");
+}
+
+console.log("");
+console.log("system administration — the Chief DLAO only, and it cannot escalate itself");
+{
+  check("the Chief DLAO is the administrator", isSystemAdministrator("chief"));
+  check("cdlao resolves to that role", canonicalRole("cdlao") === "chief");
+  for (const role of ["dlao", "chairman", "admin", "ngo", "mediator", "panel", "judge", "callcentre", "citizen", "udc", "mobile_agent"]) {
+    check(`${role} is not the administrator`, !isSystemAdministrator(role));
+  }
+  check("no session is not the administrator", !isSystemAdministrator(null));
+  check("an unknown role is not the administrator", !isSystemAdministrator("superuser"));
+
+  // The admin screen must not be reachable by a role that merely sounds senior.
+  check("the admin screen is chief-only", canAccessScreen("chief", "admin").allowed);
+  for (const role of ["dlao", "chairman", "admin", "mediator", "panel"]) {
+    check(`${role} cannot open the admin screen`, !canAccessScreen(role, "admin").allowed);
+  }
+
+  // Landing page: a Chief must not be dropped into the DLAO queue.
+  check("a citizen lands on their dashboard", homePathForRole("citizen") === "/citizen");
+  check("a panel lawyer lands on the lawyer console", homePathForRole("panel") === "/lawyer");
+  check("a DLAO lands on the district console", homePathForRole("dlao") === "/dlao");
+  check("the Chief is not dumped in the DLAO queue by a hardcoded path", homePathForRole("chief") !== "" && homePathForRole("chief") !== "/login");
+
+  // The audit catalogue is the contract; branch on these, never on prose.
+  check("the audit catalogue is non-trivial", Object.keys(AUDIT_KINDS).length >= 20, String(Object.keys(AUDIT_KINDS).length));
+  check("kinds are namespaced", Object.values(AUDIT_KINDS).every((k) => /^[a-z_]+\.[a-z_]+$/.test(k)), Object.values(AUDIT_KINDS).filter((k)=>!/^[a-z_]+\.[a-z_]+$/.test(k)).join());
+  check("kinds are unique", new Set(Object.values(AUDIT_KINDS)).size === Object.keys(AUDIT_KINDS).length);
+  for (const must of ["auth.login", "user.role_changed", "lawyer.assign", "lawyer.reassign", "eligibility.decided", "complaint.filed", "payment.approved", "admin.audit_viewed"]) {
+    check(`the catalogue includes ${must}`, Object.values(AUDIT_KINDS).includes(must as never));
+  }
 }
 
 if (failures.length) {

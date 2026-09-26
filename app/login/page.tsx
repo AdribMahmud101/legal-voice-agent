@@ -13,6 +13,7 @@ import {
 import { Button } from "@/lib/ui/components/Button";
 import { FormField } from "@/lib/ui/components/FormField";
 import { Card, CardContent } from "@/lib/ui/components/Card";
+import { homePathForRole } from "@/lib/auth/screen-guard";
 
 /**
  * The picker is two steps — group, then role — because fourteen role buttons in one
@@ -78,8 +79,7 @@ function LoginContent() {
       if (!res.ok) throw new Error(data.error || "Login failed");
       
       // Court-side roles land on the lawyer workspace, everyone else on the DLAO one.
-      const courtSide = ["panel", "panel_lawyer", "judge", "chowki", "sclao", "labour"];
-      window.location.href = courtSide.includes(selectedRole) ? "/lawyer" : "/dlao";
+      window.location.href = homePathForRole(selectedRole);
     } catch (err) {
       setStaffError(err instanceof Error ? err.message : "Unknown error");
     } finally {

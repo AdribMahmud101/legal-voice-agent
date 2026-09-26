@@ -42,8 +42,12 @@ const cdn = doc.headers.get("cdn-cache-control") ?? "";
 
 console.log(`\nexpecting build ${expected} at ${base}`);
 
-if (html.includes(expected)) pass(`served document carries build ${expected}`);
-else fail(`served document does NOT carry build ${expected} — the deploy did not roll out`);
+// The worker stamps every response with the build it is. Checked on a cache-busted
+// request *and* read back per-route below, because either alone can be fooled.
+const hdr = doc.headers.get("x-app-build");
+if (hdr === expected) pass(`worker reports build ${hdr}`);
+else if (html.includes(expected)) pass(`served document carries build ${expected}`);
+else fail(`neither the response header nor the document carries build ${expected} (header: ${hdr}) — the deploy did not roll out`);
 
 const longTtl = /s-maxage=(\d{5,})/.exec(cc);
 if (longTtl) fail(`HTML is cacheable at the edge for ${longTtl[1]}s — this is what hid the last deploy`);
@@ -52,9 +56,9 @@ else fail(`unexpected cache-control "${cc}" — an edge may serve a stale docume
 
 // 2. the same page without a cache buster, which is what a real visitor gets
 const plain = await fetch(`${base}/login`, { redirect: "follow" });
-const plainHtml = await plain.text();
-if (plainHtml.includes(expected)) pass("a normal (cacheable) request also carries the current build");
-else fail("a normal request serves a different build — the edge is holding a stale document");
+const plainBuild = plain.headers.get("x-app-build") ?? (await plain.text()).includes(expected) ? expected : null;
+if (plainBuild === expected) pass("a normal (cacheable) request also carries the current build");
+else fail(`a normal request reports build ${plainBuild} — the edge is holding a stale document`);
 
 // 3. every route must be on the same build. A partial rollout — the worker updated
 //    but one route's document cached from before — is what an eyeball comparison of two
@@ -65,11 +69,9 @@ const seen = new Set();
 for (const path of PATHS) {
   const res = await fetch(`${base}${path}?probe=${Date.now()}`, { redirect: "follow" });
   const body = await res.text();
-  const found = /BUILD_SHA\)?[^"]*"([0-9a-f]{7,40})"/.exec(body)?.[1]
-    ?? new RegExp(`>\\s*বিল্ড:\\s*<b>([0-9a-f]{7,40})`).exec(body)?.[1]
-    ?? (body.includes(expected) ? expected : null);
+  const found = res.headers.get("x-app-build") ?? (body.includes(expected) ? expected : null);
   if (found) seen.add(found);
-  else console.log(`  note  ${path} did not expose a build id (may have redirected)`);
+  else console.log(`  note  ${path} did not expose a build id`);
 }
 if (seen.size === 1) pass(`all ${PATHS.length} routes serve one build (${[...seen][0]})`);
 else if (seen.size > 1) fail(`routes are on ${seen.size} different builds: ${[...seen].join(", ")}`);

@@ -115,12 +115,19 @@ export function canAccessScreen(role: AppRole | string | null | undefined, scree
     };
   }
 
+  // Total by construction. A role this build does not know about must be denied, not
+  // thrown on: `allowed` is undefined for an unrecognised role, and `.includes` on
+  // undefined turned an access check into a 500. A guard that crashes is not a guard.
   const allowed = SCREEN_ROLES[screen];
-  if (allowed === "any-staff" ? role !== "citizen" : allowed.includes(role)) {
+  const isAllowed = allowed === "any-staff" ? role !== "citizen" : (allowed?.includes(role) ?? false);
+  if (isAllowed) {
     return { allowed: true };
   }
 
-  const expected = DENY_TITLES[screen];
+  // `expected` is only absent if a screen was added to the union without a title,
+  // which the Record type prevents — but this function is an access check, so it stays
+  // total regardless and never throws on the deny path either.
+  const expected = DENY_TITLES[screen] ?? { en: "assigned", bn: "নির্ধারিত" };
   return {
     allowed: false,
     redirectTo: whichScreen(role),
@@ -190,4 +197,31 @@ export function canSeeSensitiveCases(role: string | null | undefined): boolean {
  */
 export function isSystemAdministrator(role: string | null | undefined): boolean {
   return role === "chief";
+}
+
+/**
+ * Where a role should land after logging in.
+ *
+ * The login page used to send every non-court role to /dlao, so the Chief DLAO — the
+ * system administrator — was dropped into the district officer's queue on arrival. The
+ * decision is `whichScreen`'s job and it already existed; only the path mapping was
+ * missing, so it lives here next to the screen list rather than inline in a
+ * `window.location.href` ternary.
+ *
+ * `chief` maps to /dlao because the Chief's own console is not built yet; when it is,
+ * this is the one line that changes.
+ */
+export function homePathForRole(role: string | null | undefined): string {
+  const screen = whichScreen(role);
+  switch (screen) {
+    case "citizen":
+      return "/citizen";
+    case "lawyer":
+    case "mediator":
+      return "/lawyer";
+    case "national":
+      return "/profile";
+    default:
+      return "/dlao";
+  }
 }

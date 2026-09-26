@@ -6,6 +6,7 @@ import { getSeverityClassificationKnowledgeBlock } from "./lib/agent/knowledge/s
 import { BANGLA_LEGAL_AGENT_PROMPT } from "./lib/agent/prompts/bangla-legal-agent";
 import { interpretSemanticBridge } from "./lib/agent/semantic-bridge/match-lexicon";
 import { normalizeBangladeshPhone } from "./lib/phone/bangladesh-phone";
+import { BUILD_SHA as APP_BUILD_SHA } from "./lib/build-info";
 
 /**
  * Soniox Real-Time STT WebSocket proxy: injects the server-side SONIOX_API_KEY
@@ -1394,6 +1395,11 @@ function withEdgeCachePolicy(response: Response | Promise<Response>): Promise<Re
     const headers = new Headers(res.headers);
     headers.set("cache-control", "no-cache, must-revalidate");
     headers.set("cdn-cache-control", "no-store");
+    // Stamped on every response so "which build am I being served?" is answerable with
+    // curl, on any route, authenticated or not. The UI stamp in the DLAO shell is not
+    // enough on its own: an anonymous visitor never sees that shell, so a stale deploy
+    // would still be invisible to anyone checking from outside a session.
+    headers.set("x-app-build", APP_BUILD_SHA);
     return new Response(res.body, { status: res.status, statusText: res.statusText, headers });
   });
 }
