@@ -35,6 +35,8 @@ export interface PortalCaseRow {
   category: string | null;
   status: string;
   assigned_lawyer_id: string | null;
+  /** From the LEFT JOIN on panel_assignments/panel_lawyers in the list query. */
+  lawyer_name?: string | null;
   dlao_notes: string | null;
   created_at: string;
   updated_at: string;
@@ -84,6 +86,8 @@ export interface PortalCase {
   category: string | null;
   status: string;
   assignedLawyerId: string | null;
+  /** Name of the active panel lawyer, so a collapsed picker can show who is on the case. */
+  assignedLawyerName: string | null;
   dlaoNotes: string;
   createdAt: string;
   updatedAt: string;
@@ -150,6 +154,7 @@ export function mapPortalCase(row: PortalCaseRow): PortalCase {
     category: row.category,
     status: row.status === "submitted" ? "pending_review" : row.status,
     assignedLawyerId: row.assigned_lawyer_id,
+    assignedLawyerName: row.lawyer_name ?? null,
     dlaoNotes: row.dlao_notes || "",
     createdAt: row.created_at,
     updatedAt: row.updated_at,

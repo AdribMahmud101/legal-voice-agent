@@ -6,8 +6,8 @@ import { DlaoShell } from "@/lib/ui/shell/DlaoShell";
 import { Card, CardContent } from "@/lib/ui/components/Card";
 import { StatusBadge } from "@/lib/ui/components/StatusBadge";
 import { RiskBadgeRow } from "@/components/risk-badges";
+import AiLawyerPicker from "@/components/ai-lawyer-picker";
 import { Button } from "@/lib/ui/components/Button";
-import { MOCK_ROLE_IDENTITIES } from "@/lib/auth/roles";
 import { getStatusVariant, getStatusLabel } from "@/lib/data/case-store";
 import type { PortalCase } from "@/lib/data/case-projection";
 
@@ -42,6 +42,7 @@ export default function DlaoCaseDetail({ params }: { params: Promise<{ id: strin
 
   // Form state
   const [assignedLawyer, setAssignedLawyer] = useState("");
+  const [assignedLawyerName, setAssignedLawyerName] = useState("");
   const [status, setStatus] = useState("");
   const [dlaoNotes, setDlaoNotes] = useState("");
   const [semanticBangla, setSemanticBangla] = useState("");
@@ -55,6 +56,7 @@ export default function DlaoCaseDetail({ params }: { params: Promise<{ id: strin
       if (data.ok) {
         setCaseData(data.case);
         setAssignedLawyer(data.case.assignedLawyerId || "");
+        setAssignedLawyerName(data.case.assignedLawyerName || "");
         setStatus(data.case.status);
          setDlaoNotes(data.case.dlaoNotes || "");
          setSemanticBangla(data.case.semanticNormalizedBangla || data.case.problemStatement || "");
@@ -115,10 +117,6 @@ export default function DlaoCaseDetail({ params }: { params: Promise<{ id: strin
 
   if (loading) return <DlaoShell><div style={{ padding: "var(--space-xl)", textAlign: "center" }}>Loading...</div></DlaoShell>;
   if (!caseData) return <DlaoShell><div style={{ padding: "var(--space-xl)", textAlign: "center" }}>Case not found</div></DlaoShell>;
-
-  const lawyers = [
-    { id: "MOCK-panel_lawyer", name: MOCK_ROLE_IDENTITIES["panel_lawyer"].displayName }
-  ];
 
   return (
     <DlaoShell>
@@ -322,25 +320,23 @@ export default function DlaoCaseDetail({ params }: { params: Promise<{ id: strin
                 </select>
               </div>
 
-              <div style={{ display: "flex", flexDirection: "column", gap: "var(--space-xs)" }}>
-                <label style={{ fontFamily: "var(--font-bn)", fontSize: "0.875rem", fontWeight: 600, color: "var(--portal-text)" }}>প্যানেল আইনজীবী নিয়োগ</label>
-                <select
-                  value={assignedLawyer}
-                  onChange={(e) => setAssignedLawyer(e.target.value)}
-                  style={{
-                    padding: "var(--space-sm)",
-                    borderRadius: "var(--radius-md)",
-                    border: "1px solid var(--portal-border)",
-                    fontFamily: "var(--font-bn)",
-                    fontSize: "1rem"
-                  }}
-                >
-                  <option value="">-- নির্বাচন করুন --</option>
-                  {lawyers.map(l => (
-                    <option key={l.id} value={l.id}>{l.name}</option>
-                  ))}
-                </select>
-              </div>
+              {/* Was a <select> hardcoded to a single mock lawyer, so the case page
+                  offered one fake option and nothing behind the placeholder. The real
+                  roster and the recommendation engine existed on another tab, where
+                  nobody looks for a control. */}
+              <AiLawyerPicker
+                caseId={String(caseData.id || "")}
+                caseLabel={String(caseData.applicationId || caseData.docketId || caseData.id)}
+                problemType={
+                  caseData.severityCategory
+                  ?? (caseData.problemStatement?.split(":")[1]?.trim() || caseData.problemStatement || null)
+                }
+                current={assignedLawyerName ? { id: assignedLawyer, name: assignedLawyerName } : null}
+                onAssigned={(name) => {
+                  setAssignedLawyerName(name);
+                  setStatus("assigned");
+                }}
+              />
 
               <div style={{ display: "flex", flexDirection: "column", gap: "var(--space-xs)" }}>
                 <label style={{ fontFamily: "var(--font-bn)", fontSize: "0.875rem", fontWeight: 600, color: "var(--portal-text)" }}>অফিসিয়াল মন্তব্য</label>

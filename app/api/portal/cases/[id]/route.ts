@@ -33,6 +33,7 @@ const CASE_SELECT = `
   SELECT c.id, c.docket_id, c.citizen_user_id, c.voice_session_id, c.problem,
          c.has_disability, c.disability_type, c.gender, c.district, c.thana,
          c.category, c.status, c.assigned_lawyer_id, c.dlao_notes, c.created_at, c.updated_at,
+         pl.name_bn AS lawyer_name,
          a.id AS application_id, a.application_time, a.applicant_name, a.primary_contact_number,
          a.address, a.problem_statement, a.source_language, a.original_transcript,
          a.semantic_matched, a.semantic_confidence, a.semantic_intent, a.semantic_normalized_bangla,
@@ -42,6 +43,8 @@ const CASE_SELECT = `
          cr.content_type AS recording_content_type, cr.duration_ms AS recording_duration_ms,
          cr.created_at AS recording_created_at
   FROM cases c
+  LEFT JOIN panel_assignments pa ON pa.case_id = c.id AND pa.status = 'active'
+  LEFT JOIN panel_lawyers pl ON pl.id = pa.panel_lawyer_id
   LEFT JOIN applications a ON a.case_id = c.id
   LEFT JOIN call_recordings cr ON cr.id = (
     SELECT cr2.id FROM call_recordings cr2
