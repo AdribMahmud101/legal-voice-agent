@@ -73,8 +73,8 @@ export async function GET(request: Request) {
     .prepare(
       `SELECT s.case_id AS caseId, s.signed_applicant AS signedA, s.signed_opposite AS signedB,
               s.signed_mediator AS signedC, s.certified AS certified,
-              c.ref AS ref, c.problem_summary AS summary, c.district AS district,
-              (SELECT MAX(mediation_date) FROM mediations m WHERE m.case_id = s.case_id) AS mediationDate
+              c.docket_id AS ref, c.problem AS summary, c.district AS district,
+              (SELECT MAX(scheduled_at) FROM mediations m WHERE m.case_id = s.case_id) AS mediationDate
          FROM settlements s
          JOIN cases c ON c.id = s.case_id
         WHERE s.certified = 0
@@ -105,7 +105,7 @@ export async function GET(request: Request) {
     .prepare(
       `SELECT p.id, p.case_id AS caseId, p.type, p.amount_taka AS amount, p.note,
               p.requester_role AS requesterRole, p.requested_at AS requestedAt,
-              p.status, c.ref AS ref, c.district AS district
+              p.status, c.docket_id AS ref, c.district AS district
          FROM payments p JOIN cases c ON c.id = p.case_id
         WHERE p.status = 'pending'
         ORDER BY p.requested_at ASC`,
@@ -137,12 +137,18 @@ export async function GET(request: Request) {
   // Officer supervision — read-only, by the guide's own statement.
   const officers = await db
     .prepare(
+      // There is no `cases.assigned_officer_id` -- a case is not owned by an officer, it
+      // moves through stages and each move is attributed. So "cases handled" is derived
+      // from the stage history, which is also the honest answer: it counts what an
+      // officer actually acted on rather than what they were nominally handed.
       `SELECT u.id, u.display_name AS name, u.role,
-              (SELECT COUNT(*) FROM cases c WHERE c.assigned_officer_id = u.id) AS handled,
-              (SELECT COUNT(*) FROM cases c WHERE c.assigned_officer_id = u.id
-                 AND c.stage NOT IN ('closed','settled','unresolved')) AS openCases
+              (SELECT COUNT(DISTINCT h.case_id) FROM case_stage_history h
+                WHERE h.changed_by = u.id) AS handled,
+              (SELECT COUNT(*) FROM case_stage_history h JOIN cases c ON c.id = h.case_id
+                WHERE h.changed_by = u.id
+                  AND c.stage NOT IN ('closed','settled','unresolved')) AS openCases
          FROM users u
-        WHERE u.is_active = 1
+        WHERE u.status = 'active'
           AND (u.role_key = 'dlao' OR u.role IN ('dlao','MOCK-dlao'))
         ORDER BY handled DESC
         LIMIT 25`,
