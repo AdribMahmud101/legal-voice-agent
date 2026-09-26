@@ -23,6 +23,11 @@ async function hashPin(pin: string): Promise<string> {
 
 const FILED_STATUSES = ["filed", "enrolled", "in_progress", "assigned", "hearing_scheduled"];
 
+// users.role_key carries the real role because users.role's CHECK cannot be
+// widened in D1 (migration 0015); session resolution prefers it and falls back
+// to role. This lookup must use the same precedence or a citizen whose
+// role_key is set would silently become untrackable.
+
 /**
  * Case tracking by voice PIN.
  *
@@ -60,7 +65,7 @@ export async function POST(request: Request) {
               (SELECT COUNT(*) FROM case_updates u WHERE u.case_id = c.id) AS update_count
        FROM users u
        JOIN cases c ON c.citizen_user_id = u.id
-       WHERE u.role = 'citizen' AND u.pin_hash = ?
+       WHERE COALESCE(u.role_key, u.role) = 'citizen' AND u.pin_hash = ?
        ORDER BY c.created_at DESC
        LIMIT 1`,
     )
