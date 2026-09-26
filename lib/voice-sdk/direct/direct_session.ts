@@ -34,6 +34,8 @@ import {
   validateBangladeshPhone,
 } from "../../phone/bangladesh-phone";
 import { saveSimulatedSms } from "../../sms/inbox";
+import { extractDistrict } from "../../legal/districts";
+import { inferLegalCategory } from "../../legal/category";
 import { BANGLA_LEGAL_AGENT_PROMPT } from "../../agent/prompts/bangla-legal-agent";
 import { interpretSemanticBridge } from "../../agent/semantic-bridge/match-lexicon";
 import type { SemanticBridgeResult } from "../../agent/semantic-bridge/types";
@@ -250,6 +252,7 @@ class StreamingAudioPlayer {
 }
 
 let cachedGreetingAudioBuf: AudioBuffer | null = null;
+let cachedGreetingLanguageBuf: AudioBuffer | null = null;
 let cachedIvrAudioBuf: AudioBuffer | null = null;
 let cachedOption1AudioBuf: AudioBuffer | null = null;
 let cachedIntakeCompleteBuf: AudioBuffer | null = null;
@@ -260,20 +263,30 @@ let cachedProblemStartWithNoteBuf: AudioBuffer | null = null;
 let cachedInactivityAppQueryBuf: AudioBuffer | null = null;
 let cachedInactivityNoAckBuf: AudioBuffer | null = null;
 let cachedInactivityHangupBuf: AudioBuffer | null = null;
-let cachedLanguageSelectBuf: AudioBuffer | null = null;
-let cachedLanguageConfirmedBnBuf: AudioBuffer | null = null;
-let cachedLanguageConfirmedMarmaBuf: AudioBuffer | null = null;
-let cachedLanguageConfirmedChakmaBuf: AudioBuffer | null = null;
 let cachedOption3TrackingBuf: AudioBuffer | null = null;
 let cachedCasePinLockedBuf: AudioBuffer | null = null;
 
-const LANGUAGE_SELECTION_PROMPT =
-  "প্রথমে আপনার ভাষা নির্বাচন করুন: বাংলার জন্য ১, মারমার জন্য ২, চাকমার জন্য ৩ চাপুন, অথবা মুখে ভাষার নাম বলুন। এরপর সাধারণ তথ্যের জন্য ১, সমস্যা বা অভিযোগের জন্য ২ এবং কেস ট্র্যাকিংয়ের জন্য ৩ চাপুন।";
+/** Re-asked when the caller stays silent during language selection. TTS, not a clip. */
+const LANGUAGE_REASK_PROMPT = "আপনার ভাষা: বাংলা ১, মারমা ২, চাকমা ৩ — চাপুন।";
 const LANGUAGE_SELECTION_RETRY_PROMPT =
   "আমি আপনার ভাষা বুঝতে পারিনি। বাংলার জন্য ১, মারমার জন্য ২, চাকমার জন্য ৩ চাপুন, অথবা মুখে বলুন।";
 
+/** The 1/2/3 root menu, said exactly once per call. Matches ivr_menu.wav. */
+const ROOT_MENU_PROMPT =
+  "সাধারণ তথ্য জানতে ১ চাপুন, কোনো সমস্যা বা অভিযোগ জানাতে ২ চাপুন, আর আপনার নথির অবস্থা জানতে কেস ট্র্যাকিংয়ের জন্য ৩ চাপুন।";
+
+/**
+ * Welcome, recording notice and the language question as ONE clip. The caller used
+ * to sit through a 10.8s greeting and then an 8.8s language prompt before they
+ * could act. Matches greeting_language.wav; if you edit this, re-synthesize the
+ * clip or the recording and the code will disagree.
+ */
+const MERGED_GREETING_PROMPT =
+  "আইনি সহায়তায় স্বাগতম। আপনার কথোপকথনটি রেকর্ড হচ্ছে। ভাষা: বাংলা ১, মারমা ২, চাকমা ৩ — চাপুন, অথবা মুখে বলুন।";
+
 type AudioKind =
   | "greeting"
+  | "greeting_language"
   | "ivr"
   | "option1"
   | "intake_complete"
@@ -284,10 +297,6 @@ type AudioKind =
   | "inactivity_app_query"
   | "inactivity_no_ack"
   | "inactivity_hangup"
-  | "language_select"
-  | "language_confirmed_bn"
-  | "language_confirmed_marma"
-  | "language_confirmed_chakma"
   | "option3_tracking"
   | "case_pin_locked";
 
@@ -297,6 +306,7 @@ async function getPreRecordedAudioBuffer(
 ): Promise<AudioBuffer | null> {
   try {
     if (kind === "greeting" && cachedGreetingAudioBuf) return cachedGreetingAudioBuf;
+    if (kind === "greeting_language" && cachedGreetingLanguageBuf) return cachedGreetingLanguageBuf;
     if (kind === "ivr" && cachedIvrAudioBuf) return cachedIvrAudioBuf;
      if (kind === "option1" && cachedOption1AudioBuf) return cachedOption1AudioBuf;
       if (kind === "intake_complete" && cachedIntakeCompleteBuf) return cachedIntakeCompleteBuf;
@@ -309,15 +319,12 @@ async function getPreRecordedAudioBuffer(
 
     if (kind === "inactivity_no_ack" && cachedInactivityNoAckBuf) return cachedInactivityNoAckBuf;
     if (kind === "inactivity_hangup" && cachedInactivityHangupBuf) return cachedInactivityHangupBuf;
-    if (kind === "language_select" && cachedLanguageSelectBuf) return cachedLanguageSelectBuf;
-    if (kind === "language_confirmed_bn" && cachedLanguageConfirmedBnBuf) return cachedLanguageConfirmedBnBuf;
-    if (kind === "language_confirmed_marma" && cachedLanguageConfirmedMarmaBuf) return cachedLanguageConfirmedMarmaBuf;
-    if (kind === "language_confirmed_chakma" && cachedLanguageConfirmedChakmaBuf) return cachedLanguageConfirmedChakmaBuf;
     if (kind === "option3_tracking" && cachedOption3TrackingBuf) return cachedOption3TrackingBuf;
     if (kind === "case_pin_locked" && cachedCasePinLockedBuf) return cachedCasePinLockedBuf;
 
     const urls: Record<AudioKind, string> = {
       greeting: "/audio/greeting.wav",
+      greeting_language: "/audio/greeting_language.wav",
       ivr: "/audio/ivr_menu.wav",
        option1: "/audio/option1_prompt.wav",
        intake_complete: "/audio/intake_complete.wav",
@@ -329,10 +336,6 @@ async function getPreRecordedAudioBuffer(
 
       inactivity_no_ack: "/audio/inactivity_no_ack.wav",
       inactivity_hangup: "/audio/inactivity_hangup.wav",
-      language_select: "/audio/language_select.wav",
-      language_confirmed_bn: "/audio/language_confirmed_bn.wav",
-      language_confirmed_marma: "/audio/language_confirmed_marma.wav",
-      language_confirmed_chakma: "/audio/language_confirmed_chakma.wav",
       option3_tracking: "/audio/option3_tracking.wav",
       case_pin_locked: "/audio/case_pin_locked.wav",
     };
@@ -341,6 +344,7 @@ async function getPreRecordedAudioBuffer(
     const arrayBuf = await res.arrayBuffer();
     const decoded = await audioCtx.decodeAudioData(arrayBuf);
     if (kind === "greeting") cachedGreetingAudioBuf = decoded;
+    if (kind === "greeting_language") cachedGreetingLanguageBuf = decoded;
     if (kind === "ivr") cachedIvrAudioBuf = decoded;
      if (kind === "option1") cachedOption1AudioBuf = decoded;
       if (kind === "intake_complete") cachedIntakeCompleteBuf = decoded;
@@ -353,10 +357,6 @@ async function getPreRecordedAudioBuffer(
 
     if (kind === "inactivity_no_ack") cachedInactivityNoAckBuf = decoded;
     if (kind === "inactivity_hangup") cachedInactivityHangupBuf = decoded;
-    if (kind === "language_select") cachedLanguageSelectBuf = decoded;
-    if (kind === "language_confirmed_bn") cachedLanguageConfirmedBnBuf = decoded;
-    if (kind === "language_confirmed_marma") cachedLanguageConfirmedMarmaBuf = decoded;
-    if (kind === "language_confirmed_chakma") cachedLanguageConfirmedChakmaBuf = decoded;
     if (kind === "option3_tracking") cachedOption3TrackingBuf = decoded;
     if (kind === "case_pin_locked") cachedCasePinLockedBuf = decoded;
     return decoded;
@@ -574,34 +574,6 @@ function cleanBengaliName(input: string): string {
   return clean;
 }
 
-function extractDistrict(address: string): string | null {
-  const districts = [
-    "ঢাকা", "চট্টগ্রাম", "সিলেট", "রাজশাহী", "খুলনা", "বরিশাল", "রংপুর", "ময়মনসিংহ",
-    "কুমিল্লা", "ফেনী", "নোয়াখালী", "বগুড়া", "যশোর", "পাবনা", "দিনাজপুর", "কুষ্টিয়া",
-    "গাজীপুর", "নারায়ণগঞ্জ", "টাঙ্গাইল", "জামালপুর", "কক্সবাজার", "ব্রাহ্মণবাড়িয়া",
-    "চাঁদপুর", "লক্ষ্মীপুর", "নরসিংদী", "মাদারীপুর", "শরীয়তপুর", "ফরিদপুর", "গোপালগঞ্জ",
-    "মুন্সীগঞ্জ", "মানিকগঞ্জ", "কিশোরগঞ্জ", "নেত্রকোণা", "শেরপুর", "সিরাজগঞ্জ", "নাটোর",
-    "নওগাঁ", "চাঁপাইনবাবগঞ্জ", "জয়পুরহাট", "বাগেরহাট", "সাতক্ষীরা", "ঝিনাইদহ", "মাগুরা",
-    "নড়াইল", "চুয়াডাঙ্গা", "মেহেরপুর", "ভোলা", "পটুয়াখালী", "বরগুনা", "পিরোজপুর",
-    "ঝালকাঠি", "সুনামগঞ্জ", "হবিগঞ্জ", "মৌলভীবাজার", "কুড়িগ্রাম", "গাইবান্ধা", "লালমনিরহাট",
-    "নীলফামারী", "পঞ্চগড়", "ঠাকুরগাঁও"
-  ];
-  for (const d of districts) {
-    if (address.includes(d)) return d;
-  }
-  return null;
-}
-
-function inferLegalCategory(problem: string): string {
-  if (/জামিন|গ্রেপ্তার|পুলিশ|আটক|মামলা|ধারা|ফৌজদারি/i.test(problem)) return "criminal_bail";
-  if (/স্বামী|যৌতুক|মারধর|নির্যাতন|স্ত্রী|সংসার|তালাক/i.test(problem)) return "domestic_violence";
-  if (/জমি|দখল|পৈতৃক|সীমানা|দলিল|খতিয়ান|জমিজমা/i.test(problem)) return "land_dispute";
-  if (/বেতন|মালিক|কারখানা|শ্রমিক|বকেয়া|চাকরি|ওভারটাইম/i.test(problem)) return "labor_wage";
-  if (/দেনমোহর|ভরণপোষণ|সন্তান|হেফাজত/i.test(problem)) return "family_dower_maintenance";
-  if (/ছবি|ফেসবুক|ব্ল্যাকমেইল|ইন্টারনেট|সাইবার/i.test(problem)) return "cyber_harassment";
-  return "general_civil";
-}
-
 export class DirectSession implements VoiceSession {
   private soniox: SonioxStt | null = null;
   private sttLanguage: string = "bn";
@@ -634,6 +606,10 @@ export class DirectSession implements VoiceSession {
   private currentTranscript: string = "";
   private accumulatedSegments: string[] = [];
   private t_last_mic_speech: number = 0;
+  /** Throttle for interim_transcript; Soniox emits a frame every few hundred ms. */
+  private t_last_interim_emit: number = 0;
+  /** When the STT engine declared the current turn finished (0 = not yet). */
+  private t_engine_end: number = 0;
   private t_first_pcm_chunk: number = 0;
   private micScriptNode: ScriptProcessorNode | null = null;
   private micWorkletNode: AudioWorkletNode | null = null;
@@ -832,10 +808,23 @@ export class DirectSession implements VoiceSession {
     }, 5000);
   }
 
+  /**
+   * Partial recognition of the utterance in progress. Soniox revises this text as
+   * more audio arrives, so it is emitted as a replacement rather than a delta, and
+   * throttled because the provider sends a frame every few hundred milliseconds.
+   *
+   * This is what makes the call *feel* responsive: without it the caller sees
+   * nothing at all while speaking and the whole sentence appears at once when the
+   * turn commits, which reads as very slow transcription even though the
+   * recognition itself was accurate and on time.
+   */
   private handleSttInterim(text: string): void {
-    if (text.length > 0) {
-      this.currentTranscript = text;
-    }
+    if (text.length === 0) return;
+    this.currentTranscript = text;
+    const now = performance.now();
+    if (now - this.t_last_interim_emit < 250) return;
+    this.t_last_interim_emit = now;
+    this.emit({ type: "interim_transcript", text });
   }
 
   private handleSttFinalSegment(text: string, utteranceEnd: boolean): void {
@@ -846,7 +835,7 @@ export class DirectSession implements VoiceSession {
     if (utteranceEnd) {
       // The engine declares the caller finished the turn (<end> / <fin>) —
       // commit through the mic-activity guard immediately.
-      void this.attemptFlush("stt_utterance_end");
+      void this.attemptFlush("stt_utterance_end", true);
     } else {
       const commitDelay =
         this.intakeStep === "disability" ||
@@ -965,12 +954,14 @@ export class DirectSession implements VoiceSession {
     const officialDefaultGreeting =
       "বাংলাদেশ সরকারের বিনামূল্যে আইনি সহায়তা হেল্পলাইনে আপনাকে স্বাগতম। " +
       "আপনাকে সঠিক সেবা প্রদান এবং ভবিষ্যতের প্রয়োজনে আমাদের এই কথোপকথনটি রেকর্ড করা হচ্ছে।";
-    const officialDefaultSecondary =
-      "সাধারণ তথ্য জানতে ১ চাপুন, কোনো সমস্যা বা অভিযোগ জানাতে ২ চাপুন, আর আপনার নথির অবস্থা জানতে কেস ট্র্যাকিংয়ের জন্য ৩ চাপুন।";
+    const officialDefaultSecondary = ROOT_MENU_PROMPT;
 
     const activeGreeting = config.greeting !== undefined ? config.greeting : officialDefaultGreeting;
+     // On a fresh call the welcome, the recording notice and the language question
+     // are a single clip, and nothing follows it: the caller goes straight to voice
+     // input. Only the non-fresh path still speaks greeting, then the root menu.
      const activeSecondary = this.languageSelectionPending
-       ? LANGUAGE_SELECTION_PROMPT
+       ? MERGED_GREETING_PROMPT
        : config.secondaryPrompt !== undefined ? config.secondaryPrompt : officialDefaultSecondary;
 
     if (activeGreeting && !this.greetingSpoken) {
@@ -979,58 +970,63 @@ export class DirectSession implements VoiceSession {
       this.setAssistantSpeaking(true);
       this.emit({ type: "state_changed", state: "speaking" });
 
-      // 1st Message: Greeting & Introduction
-      this.emit({ type: "transcript", role: "assistant", text: activeGreeting });
-      this.conversationHistory.push({ role: "assistant", content: activeGreeting });
+      // 1st Message: the one merged opening clip, else greeting + IVR menu.
+      const openingText = this.languageSelectionPending ? activeSecondary : activeGreeting;
+      this.emit({ type: "transcript", role: "assistant", text: openingText });
+      this.conversationHistory.push({ role: "assistant", content: openingText });
 
-      // 2nd Message: IVR Menu Prompt
-      if (activeSecondary) {
+      if (!this.languageSelectionPending && activeSecondary) {
         this.emit({ type: "transcript", role: "assistant", text: activeSecondary });
         this.conversationHistory.push({ role: "assistant", content: activeSecondary });
       }
 
       void (async () => {
-        let playedLanguageSelection = false;
+        let playedOpening = false;
         try {
           if (!this.greetingActive || !this.audioCtx || !this.player) return;
 
           // Load and play pre-recorded Soniox audio (saves 100% of TTS credits, 0ms synthesis delay)
-          const greetingBuf = await getPreRecordedAudioBuffer(this.audioCtx, "greeting");
-           if (greetingBuf && this.greetingActive && this.player) {
-             this.player.playAudioBuffer(greetingBuf);
-           }
-           if (!this.languageSelectionPending) {
-             const ivrBuf = await getPreRecordedAudioBuffer(this.audioCtx, "ivr");
-             if (ivrBuf && this.greetingActive && this.player) {
-               this.player.playAudioBuffer(ivrBuf);
-             }
-           } else {
-             const languageBuf = await getPreRecordedAudioBuffer(this.audioCtx, "language_select");
-             if (languageBuf && this.greetingActive && this.player) {
-               this.player.playAudioBuffer(languageBuf);
-               playedLanguageSelection = true;
-             }
-           }
-           if (this.greetingActive && this.player) {
-             await this.player.waitUntilFinished();
-           }
-           if (
-             this.languageSelectionPending &&
-             !playedLanguageSelection &&
-             this.greetingActive &&
-             this.ttsWs
-           ) {
-             await this.ttsWs.speakWhenReady(activeSecondary);
-             this.ttsWs.flush();
-             await this.ttsWs.waitForFlush(8000);
-             await this.player?.waitUntilFinished();
-           }
-        } catch (err) {
+          if (this.languageSelectionPending) {
+            // One clip: welcome + recording notice + language question.
+            const openingBuf = await getPreRecordedAudioBuffer(this.audioCtx, "greeting_language");
+            if (openingBuf && this.greetingActive && this.player) {
+              this.player.playAudioBuffer(openingBuf);
+              playedOpening = true;
+            }
+          } else {
+            const greetingBuf = await getPreRecordedAudioBuffer(this.audioCtx, "greeting");
+            if (greetingBuf && this.greetingActive && this.player) {
+              this.player.playAudioBuffer(greetingBuf);
+            }
+            const ivrBuf = await getPreRecordedAudioBuffer(this.audioCtx, "ivr");
+            if (ivrBuf && this.greetingActive && this.player) {
+              this.player.playAudioBuffer(ivrBuf);
+            }
+          }
+            if (this.greetingActive && this.player) {
+              await this.player.waitUntilFinished();
+            }
+            if (
+              this.languageSelectionPending &&
+              !playedOpening &&
+              this.greetingActive &&
+              this.ttsWs
+            ) {
+              await this.ttsWs.speakWhenReady(activeSecondary);
+              this.ttsWs.flush();
+              await this.ttsWs.waitForFlush(8000);
+              await this.player?.waitUntilFinished();
+            }
+         } catch (err) {
           console.warn("Failed to play pre-recorded audio, falling back to TTS:", err);
           if (this.ttsWs && this.greetingActive) {
-            await this.ttsWs.speakWhenReady(activeGreeting);
-            if (activeSecondary) {
+            if (this.languageSelectionPending) {
               await this.ttsWs.speakWhenReady(activeSecondary);
+            } else {
+              await this.ttsWs.speakWhenReady(activeGreeting);
+              if (activeSecondary) {
+                await this.ttsWs.speakWhenReady(activeSecondary);
+              }
             }
             this.ttsWs.flush();
             await this.ttsWs.waitForFlush(8000);
@@ -1078,21 +1074,42 @@ export class DirectSession implements VoiceSession {
    * the last 300ms), postpone instead of committing — this is the guard that
    * stops "half a sentence" turns from racing the user's own continuation.
    */
-  private async attemptFlush(reason: string) {
+  /**
+   * Commit gate: never dispatch the turn to the LLM while the user is still
+   * mid-utterance.
+   *
+   * `engineEnded` means the STT provider itself declared the turn finished
+   * (<end>/<fin>). That matters in a loud room: the local VAD decides "speech
+   * stopped" from spectral energy against an adaptive noise floor, so with
+   * background noise the noise floor rises and the silence detector can stay
+   * latched on speech indefinitely. Waiting on it there added seconds to every
+   * turn for no benefit, because the engine has already told us the caller
+   * stopped. So when the engine has ended the turn we trust it — but only after
+   * a bounded grace period, so a genuine mid-sentence pause is not cut off and
+   * later clauses still join the same turn.
+   */
+  private async attemptFlush(reason: string, engineEnded = false) {
     if (this.speechFinalDebounceTimer) {
       clearTimeout(this.speechFinalDebounceTimer);
       this.speechFinalDebounceTimer = null;
     }
 
+    if (engineEnded && this.t_engine_end === 0) this.t_engine_end = performance.now();
+
     const sinceMicSpeech =
       this.t_last_mic_speech > 0 ? performance.now() - this.t_last_mic_speech : Infinity;
-    if (this.vad.isSpeaking() || sinceMicSpeech < 300) {
+    const vadBusy = this.vad.isSpeaking() || sinceMicSpeech < 300;
+    const engineGraceElapsed =
+      engineEnded && this.t_engine_end > 0 && performance.now() - this.t_engine_end >= 900;
+
+    if (vadBusy && !engineGraceElapsed) {
       this.speechFinalDebounceTimer = setTimeout(() => {
-        void this.attemptFlush(reason);
-      }, 400);
+        void this.attemptFlush(reason, engineEnded);
+      }, 200);
       return;
     }
 
+    this.t_engine_end = 0;
      await this.flushAccumulatedUtterance();
   }
 
@@ -1109,9 +1126,30 @@ export class DirectSession implements VoiceSession {
 
     if (!fullText || fullText.length === 0) return;
 
+    // Speaking is as valid as pressing a key at the root menu, so a committed
+    // utterance must release the hold. The keypad path does this in
+    // sendUserMessageInternal; without it here the UI would still read
+    // "press a key" after the caller had already been answered.
+    this.exitDtmfWait();
+
+    // A caller who SPEAKS at the root menu is doing general enquiry — that is
+    // what option 1 means. generalQueryMode used to be set only by the keypad
+    // handler, so a spoken turn was answered by the LLM but left the rest of the
+    // general-query loop dead: no offer to switch into the problem phase
+    // (armOfferFromAssistantTurn), no inactivity escalation, no cut-call handling.
+    // Enter the mode silently: they have already stated the problem, so
+    // re-prompting "আপনার প্রশ্নটি বলুন" would just repeat what they said.
+    if (!this.generalQueryMode && this.intakeStep === "idle" && !this.isCaseTrackingStep()) {
+      this.generalQueryMode = true;
+      this.inactivityPhase = "off";
+    }
+
     const turnEpoch = ++this.activityEpoch;
     this.accumulatedSegments = [];
     this.currentTranscript = "";
+    // The turn is committed, so the live line has served its purpose. An empty
+    // interim clears it rather than leaving a stale partial on screen.
+    this.emit({ type: "interim_transcript", text: "" });
 
       if (this.blindAccessState === "pin_ready") {
         if (await this.handleBlindPinInput(fullText)) return;
@@ -1223,10 +1261,18 @@ export class DirectSession implements VoiceSession {
       this.vad.setPlaybackMode(isAssistantSpeaking);
 
       // In halfDuplex, ignore the mic entirely while the assistant is speaking/playing,
-      // or while the greeting/IVR announcement plays, or during DTMF wait:
-      // this guarantees zero echo-triggered barge-in, zero self-interruption of Option 1
-      // or greetings, and zero acoustic feedback!
-      if (this.halfDuplex && (isAssistantSpeaking || this.greetingActive || this.waitingForDtmf)) {
+      // or while the opening announcement plays: this guarantees zero echo-triggered
+      // barge-in, zero self-interruption of Option 1 or the greeting, and zero
+      // acoustic feedback.
+      //
+      // waitingForDtmf is deliberately NOT in this list. It used to be, and that made
+      // the root menu keypad-only: DTMF is produced by the browser's on-screen keypad
+      // (playDtmfTone + sendUserMessage) and nothing in this codebase ever *detects*
+      // a real DTMF tone. So a caller dialling 16699 from an actual phone, or anyone
+      // who simply spoke instead of pressing a key, had their audio discarded before
+      // the VAD or STT ever saw it — the call went silent with no way forward.
+      // The agent is not speaking during this wait, so there is no echo to reject.
+      if (this.halfDuplex && (isAssistantSpeaking || this.greetingActive)) {
         return;
       }
 
@@ -1703,9 +1749,11 @@ export class DirectSession implements VoiceSession {
   }
 
   /**
-   * IVR gate: hold the call at the root menu until the caller presses a DTMF
-   * key. Transcription (STT audio + VAD + turn detection) stays fully off — the
-   * mic path is ignored — until a key lands via sendUserMessage().
+   * Root-menu hold. The caller may press a key on the on-screen keypad OR simply
+   * speak — the mic is deliberately left unmuted, because DTMF is only ever
+   * produced by that keypad and a real telephone caller pressing 1/2/3 would
+   * otherwise be silenced with no route forward. Nothing is spoken here, so
+   * there is no echo for the VAD to reject.
    */
   private enterDtmfWait() {
     if (this.languageSelectionPending) {
@@ -1714,10 +1762,8 @@ export class DirectSession implements VoiceSession {
     }
     this.waitingForDtmf = true;
     this.turnPhase.reset();
-    this.emit({ type: "mic_mute_changed", muted: true });
-    if (this.micWorkletNode) {
-      this.micWorkletNode.port.postMessage({ type: "set_mute", muted: true });
-    }
+    // The mic stays live, so report it as such rather than claiming it is muted.
+    this.emit({ type: "mic_mute_changed", muted: false });
     this.emit({ type: "state_changed", state: "dtmf_wait" });
   }
 
@@ -1858,15 +1904,10 @@ export class DirectSession implements VoiceSession {
     this.intakeStep = "idle";
     this.intakeData.indigenousLanguage = language;
     this.emit({ type: "intake_step_changed", step: "idle", data: this.intakeData });
-    const label = language === "bn" ? "বাংলা" : language === "marma" ? "মারমা" : "চাকমা";
-    await this.speakAssistantPhrase(
-      `${label} ভাষা নির্বাচিত হয়েছে। এখন সাধারণ তথ্যের জন্য ১, সমস্যা বা অভিযোগের জন্য ২ এবং কেস ট্র্যাকিংয়ের জন্য ৩ চাপুন।`,
-      language === "bn"
-        ? "language_confirmed_bn"
-        : language === "marma"
-          ? "language_confirmed_marma"
-          : "language_confirmed_chakma",
-    );
+    // No acknowledgement: the keypress is its own. The 1/2/3 menu is announced
+    // exactly once, here, now that the language prompt no longer carries it.
+    // "ivr" is the pre-recorded root menu, so this costs no TTS.
+    await this.speakAssistantPhrase(ROOT_MENU_PROMPT, "ivr");
     if (this.isCallActive) this.enterDtmfWait();
     return true;
   }
@@ -2247,15 +2288,17 @@ export class DirectSession implements VoiceSession {
       this.setAssistantSpeaking(true);
       this.emit({ type: "state_changed", state: "speaking" });
 
+      // A silent caller is re-asked with the language question alone. Replaying the
+      // whole merged intro would cost another 9s of silence on top of the wait.
       const queryText = this.languageSelectionPending
-        ? "প্রথমে আপনার ভাষা নির্বাচন করুন: বাংলার জন্য ১, মারমার জন্য ২, চাকমার জন্য ৩ চাপুন, অথবা মুখে ভাষার নাম বলুন। এরপর সাধারণ তথ্যের জন্য ১, সমস্যা বা অভিযোগের জন্য ২ এবং কেস ট্র্যাকিংয়ের জন্য ৩ চাপুন।"
+        ? LANGUAGE_REASK_PROMPT
         : "আপনি কি সরকারি আইনি সহায়তার জন্য কোনো আবেদন বা অভিযোগ নথিভুক্ত করতে চান? হ্যাঁ অথবা না বলুন, অথবা আপনার অন্য কোনো প্রশ্ন থাকলে করতে পারেন।";
       this.emit({ type: "transcript", role: "assistant", text: queryText });
       this.conversationHistory.push({ role: "assistant", content: queryText });
 
       await this.speakAssistantPhrase(
         queryText,
-        this.languageSelectionPending ? "language_select" : "inactivity_app_query",
+        this.languageSelectionPending ? undefined : "inactivity_app_query",
       );
        if (this.isCallActive && this.activityEpoch === activityEpoch) {
          this.inactivityPhase = "hangup_warn";
@@ -3242,7 +3285,11 @@ export class DirectSession implements VoiceSession {
     this.setAssistantSpeaking(true);
     this.emit({ type: "state_changed", state: "speaking" });
 
-    if (trimmed === "১ (সাধারণ তথ্য ও নিয়মাবলী)") {
+    // The on-screen keypad sends the BARE digit for this step
+    // (DTMF_BY_STEP.idle = { "1": "১", ... }), so matching only the long label
+    // meant pressing 1 fell through to the LLM with "১" as the query. Options 2
+    // and 3 already accept the bare digit; this now matches them.
+    if (trimmed === "১ (সাধারণ তথ্য ও নিয়মাবলী)" || trimmed === "1" || trimmed === "১") {
       const opt1Text = "জি, সাধারণ তথ্যের জন্য আপনার প্রশ্নটি বলুন, আমি শুনছি।";
       await this.speakAssistantPhrase(opt1Text, "option1");
       if (this.isCallActive && this.activityEpoch === activityEpoch) {
@@ -3395,6 +3442,7 @@ export class DirectSession implements VoiceSession {
     this.player = null;
     this.recordingDestination = null;
     this.currentTranscript = "";
+    this.t_engine_end = 0;
     this.accumulatedSegments = [];
     this.conversationHistory = [];
 

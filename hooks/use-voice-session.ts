@@ -98,6 +98,8 @@ interface UseVoiceSessionResult {
   intakeStep: IntakeStep;
   intakeData: IntakeData;
   transcript: TranscriptEntry[];
+  /** Live partial recognition, cleared when the turn commits. */
+  interimText: string;
   logs: LogEntry[];
   metrics: LatencyMetrics | null;
   metricHistory: LatencyMetrics[];
@@ -118,6 +120,8 @@ export function useVoiceSession(onSdkEvent?: (evt: SdkEvent) => void): UseVoiceS
   const [intakeStep, setIntakeStep] = useState<IntakeStep>("idle");
   const [intakeData, setIntakeData] = useState<IntakeData>({});
   const [transcript, setTranscript] = useState<TranscriptEntry[]>([]);
+  /** Live partial recognition of the utterance in progress. */
+  const [interimText, setInterimText] = useState("");
   const [logs, setLogs] = useState<LogEntry[]>([]);
   const [metrics, setMetrics] = useState<LatencyMetrics | null>(null);
   const [metricHistory, setMetricHistory] = useState<LatencyMetrics[]>([]);
@@ -211,7 +215,14 @@ export function useVoiceSession(onSdkEvent?: (evt: SdkEvent) => void): UseVoiceS
           setPhase("error");
           break;
         }
+        case "interim_transcript": {
+          // Throttled upstream; a replacement, not an append. An empty string
+          // is the turn committing, which clears the live line.
+          setInterimText(evt.text);
+          break;
+        }
         case "transcript": {
+          setInterimText("");
           setTranscript((prev) => {
             const last = prev[prev.length - 1];
             if (last && last.role === "assistant" && evt.role === "assistant") {
@@ -264,6 +275,7 @@ export function useVoiceSession(onSdkEvent?: (evt: SdkEvent) => void): UseVoiceS
       setIntakeStep("idle");
       setIntakeData({});
       setTranscript([]);
+      setInterimText("");
       setMetricHistory([]);
       setMetrics(null);
       setActiveTool(null);
@@ -312,5 +324,5 @@ export function useVoiceSession(onSdkEvent?: (evt: SdkEvent) => void): UseVoiceS
     setSessionId(null);
   }, []);
 
-  return { phase, sessionId, currentUser, activeTool, isMicMuted, intakeStep, intakeData, transcript, logs, metrics, metricHistory, start, sendMessage, stop };
+  return { phase, sessionId, currentUser, activeTool, isMicMuted, intakeStep, intakeData, transcript, interimText, logs, metrics, metricHistory, start, sendMessage, stop };
 }

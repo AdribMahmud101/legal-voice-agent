@@ -15,6 +15,8 @@ export interface D1Database {
 interface SessionRow {
   id: string;
   role: AppRole;
+  /** Canonical DBLA role; NULL for rows created before migration 0015. */
+  role_key: string | null;
   display_name: string;
   status: SessionUser["status"];
   verification_status: SessionUser["verificationStatus"];
@@ -32,7 +34,7 @@ export async function getD1SessionUser(db: D1Database | null, token: string | un
   if (!token || !db) return null;
   const row = await db
     .prepare(
-      `SELECT u.id, u.role, u.display_name, u.status, u.verification_status, u.is_mock
+      `SELECT u.id, u.role, u.role_key, u.display_name, u.status, u.verification_status, u.is_mock
        FROM auth_sessions s
        JOIN users u ON u.id = s.user_id
        WHERE s.token_hash = ? AND s.revoked_at IS NULL AND s.expires_at > CURRENT_TIMESTAMP
@@ -44,7 +46,10 @@ export async function getD1SessionUser(db: D1Database | null, token: string | un
   return {
     id: row.id,
     displayName: row.display_name,
-    role: row.role,
+    // role_key is the real role when the row carries one; otherwise the legacy
+    // users.role is still authoritative, so untouched accounts behave exactly as
+    // they did before the registry existed.
+    role: (row.role_key as AppRole) ?? row.role,
     status: row.status,
     verificationStatus: row.verification_status,
     isMock: Boolean(row.is_mock),

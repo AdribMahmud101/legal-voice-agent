@@ -52,18 +52,33 @@ async function main() {
   console.log('pre-recorded fetched:', afterGreeting.audio);
   console.log('TTS synthesized    :', afterGreeting.tts.length === 0 ? '(none)' : afterGreeting.tts);
 
-  const selectViaTts = afterGreeting.tts.some((t) => t.includes('ভাষা নির্বাচন'));
+  const selectViaTts = afterGreeting.tts.length > 0;
 
   // Marma = 2
   await send('২', 4000);
   const afterMarma = [...audioFetched];
+  const afterMarmaTts = [...ttsSpoken];
+  // audioFetched is cumulative, so compare the delta: selecting a language must
+  // fetch nothing but the menu, and synthesize nothing.
+  const newAudioAfterSelection = afterMarma.slice(afterGreeting.audio.length);
   console.log('\n=== AFTER SELECTING MARMA (2) ===');
   console.log('pre-recorded fetched:', afterMarma);
+  console.log('newly fetched      :', newAudioAfterSelection.length === 0 ? '(none)' : newAudioAfterSelection);
+  console.log('TTS synthesized    :', afterMarmaTts.length === 0 ? '(none)' : afterMarmaTts);
 
   const results = {
-    languagePrompt_prerecorded: afterGreeting.audio.includes('/audio/language_select.wav'),
-    languagePrompt_notTTS: !selectViaTts,
-    marmaAck_prerecorded: afterMarma.includes('/audio/language_confirmed_marma.wav'),
+    // The opening is ONE clip: welcome + recording notice + language question.
+    merged_opening_prerecorded: afterGreeting.audio.includes('/audio/greeting_language.wav'),
+    opening_notTTS: !selectViaTts,
+    // The old two-clip opening must be gone: no separate greeting, no separate
+    // language clip, and critically no menu in the same breath.
+    no_separate_greeting: !afterGreeting.audio.includes('/audio/greeting.wav'),
+    no_separate_language_clip: !afterGreeting.audio.includes('/audio/language_select.wav'),
+    menu_not_merged_into_greeting: !afterGreeting.audio.includes('/audio/ivr_menu.wav'),
+    // The menu is announced exactly once, on its own clip, after the language.
+    menu_announcedOnce_afterSelection:
+      newAudioAfterSelection.length === 1 && newAudioAfterSelection[0] === '/audio/ivr_menu.wav',
+    menu_notTTS: afterMarmaTts.length === 0,
   };
 
   console.log('\n=== RESULTS ===');

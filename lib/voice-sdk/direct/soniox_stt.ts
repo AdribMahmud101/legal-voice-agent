@@ -219,7 +219,7 @@ export class SonioxStt implements UnifiedStt {
           this.ws.send(JSON.stringify({ type: "finalize" }));
         } catch {}
       }
-    }, 2000);
+    }, 1400);
   }
 
   private cancelIdleFinalize(): void {

@@ -56,6 +56,8 @@ export type SdkEvent =
   | { type: "mic_mute_changed"; muted: boolean }
   | { type: "transcript"; role: string; text: string }
   | { type: "transcript_chunk"; role: string; text: string }
+  /** Partial, still-revising recognition of the caller's current utterance. */
+  | { type: "interim_transcript"; text: string }
   | { type: "tool_activity"; tool_name?: string; message?: string }
   | {
       type: "latency_metrics";

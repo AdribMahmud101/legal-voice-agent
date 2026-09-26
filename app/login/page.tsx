@@ -3,12 +3,26 @@
 import Link from "next/link";
 import { useState, Suspense } from "react";
 import { useSearchParams } from "next/navigation";
-import { MOCK_ROLE_IDENTITIES, ROLE_LABELS, type StaffRole } from "@/lib/auth/roles";
+import {
+  MOCK_ROLE_IDENTITIES,
+  ROLE_GROUPS,
+  rolesInGroup,
+  type RoleGroupId,
+  type StaffRole,
+} from "@/lib/auth/roles";
 import { Button } from "@/lib/ui/components/Button";
 import { FormField } from "@/lib/ui/components/FormField";
 import { Card, CardContent } from "@/lib/ui/components/Card";
 
-const MOCK_ROLES = Object.keys(MOCK_ROLE_IDENTITIES) as StaffRole[];
+/**
+ * The picker is two steps — group, then role — because fourteen role buttons in one
+ * list is unreadable. Only canonical roles are offered; the legacy keys stay
+ * reachable through the API but are not what a person should have to choose between.
+ */
+const GROUPED_ROLES = ROLE_GROUPS.map((group) => ({
+  group,
+  roles: rolesInGroup(group.id),
+}));
 
 function LoginContent() {
   const searchParams = useSearchParams();
@@ -21,7 +35,8 @@ function LoginContent() {
   const [citizenError, setCitizenError] = useState("");
 
   // Staff Login State
-  const [selectedRole, setSelectedRole] = useState<StaffRole>("chief_legal_aid_officer");
+  const [selectedGroup, setSelectedGroup] = useState<RoleGroupId | null>(null);
+  const [selectedRole, setSelectedRole] = useState<StaffRole | null>(null);
   const [isStaffLoading, setIsStaffLoading] = useState(false);
   const [staffError, setStaffError] = useState("");
 
@@ -53,6 +68,7 @@ function LoginContent() {
     setStaffError("");
 
     try {
+      if (!selectedRole) throw new Error("প্রথমে একটি রোল নির্বাচন করুন।");
       const res = await fetch("/api/portal/login", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -61,12 +77,9 @@ function LoginContent() {
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || "Login failed");
       
-      // Redirect based on role
-      if (selectedRole === "panel_lawyer") {
-        window.location.href = "/lawyer";
-      } else {
-        window.location.href = "/dlao";
-      }
+      // Court-side roles land on the lawyer workspace, everyone else on the DLAO one.
+      const courtSide = ["panel", "panel_lawyer", "judge", "chowki", "sclao", "labour"];
+      window.location.href = courtSide.includes(selectedRole) ? "/lawyer" : "/dlao";
     } catch (err) {
       setStaffError(err instanceof Error ? err.message : "Unknown error");
     } finally {
@@ -187,40 +200,103 @@ function LoginContent() {
                   হ্যাকাথন ডেমো: নিচে থেকে যেকোনো একটি রোল সিলেক্ট করে লগইন করুন।
                 </p>
                 
-                <div style={{ display: "flex", flexDirection: "column", gap: "var(--space-sm)" }}>
-                  {MOCK_ROLES.map((role) => (
+                {!selectedGroup ? (
+                  <div style={{ display: "grid", gap: "var(--space-sm)", gridTemplateColumns: "repeat(auto-fit, minmax(240px, 1fr))" }}>
+                    {GROUPED_ROLES.map(({ group, roles }) => (
+                      <button
+                        key={group.id}
+                        type="button"
+                        onClick={() => setSelectedGroup(group.id)}
+                        style={{
+                          display: "flex",
+                          flexDirection: "column",
+                          alignItems: "flex-start",
+                          gap: 4,
+                          padding: "var(--space-md)",
+                          borderRadius: "var(--radius-md)",
+                          border: "1.5px solid var(--portal-border)",
+                          backgroundColor: "var(--portal-white)",
+                          cursor: "pointer",
+                          textAlign: "left",
+                          transition: "all var(--transition-fast)",
+                        }}
+                      >
+                        <span style={{ fontFamily: "var(--font-bn)", fontWeight: 700, fontSize: "0.9375rem", color: "var(--portal-text)" }}>
+                          {group.titleBn}
+                        </span>
+                        <span style={{ fontFamily: "var(--font-bn)", fontSize: "0.8125rem", color: "var(--portal-text-secondary)" }}>
+                          {group.blurbBn}
+                        </span>
+                        <span style={{ fontSize: "0.6875rem", color: "var(--portal-text-secondary)", opacity: 0.75 }}>
+                          {roles.length}টি রোল
+                        </span>
+                      </button>
+                    ))}
+                  </div>
+                ) : (
+                  <div style={{ display: "flex", flexDirection: "column", gap: "var(--space-sm)" }}>
                     <button
-                      key={role}
-                      onClick={() => setSelectedRole(role)}
+                      type="button"
+                      onClick={() => { setSelectedGroup(null); setSelectedRole(null); }}
                       style={{
-                        display: "flex",
-                        flexDirection: "column",
-                        alignItems: "flex-start",
-                        padding: "var(--space-md)",
-                        borderRadius: "var(--radius-md)",
-                        border: `1.5px solid ${selectedRole === role ? "var(--portal-accent)" : "var(--portal-border)"}`,
-                        backgroundColor: selectedRole === role ? "var(--portal-accent-subtle)" : "var(--portal-white)",
+                        alignSelf: "flex-start",
+                        border: 0,
+                        background: "none",
+                        padding: 0,
+                        color: "var(--portal-accent-text)",
+                        fontFamily: "var(--font-bn)",
+                        fontSize: "0.8125rem",
+                        fontWeight: 700,
                         cursor: "pointer",
-                        transition: "all var(--transition-fast)",
                       }}
                     >
-                      <span style={{ fontFamily: "var(--font-bn)", fontWeight: 700, fontSize: "0.9375rem", color: "var(--portal-text)" }}>
-                        {ROLE_LABELS[role]}
-                      </span>
-                      <span style={{ fontFamily: "var(--font-bn)", fontSize: "0.8125rem", color: "var(--portal-text-secondary)" }}>
-                        {MOCK_ROLE_IDENTITIES[role].displayName}
-                      </span>
+                      ← সব গ্রুপ দেখুন
                     </button>
-                  ))}
-                </div>
+                    {rolesInGroup(selectedGroup).map((role) => (
+                      <button
+                        key={role.key}
+                        type="button"
+                        onClick={() => setSelectedRole(role.key as StaffRole)}
+                        style={{
+                          display: "flex",
+                          flexDirection: "column",
+                          alignItems: "flex-start",
+                          gap: 3,
+                          padding: "var(--space-md)",
+                          borderRadius: "var(--radius-md)",
+                          border: `1.5px solid ${selectedRole === role.key ? "var(--portal-accent)" : "var(--portal-border)"}`,
+                          backgroundColor: selectedRole === role.key ? "var(--portal-accent-subtle)" : "var(--portal-white)",
+                          cursor: "pointer",
+                          textAlign: "left",
+                          transition: "all var(--transition-fast)",
+                        }}
+                      >
+                        <span style={{ fontFamily: "var(--font-bn)", fontWeight: 700, fontSize: "0.9375rem", color: "var(--portal-text)" }}>
+                          {role.titleBn}
+                        </span>
+                        <span style={{ fontFamily: "var(--font-bn)", fontSize: "0.8125rem", color: "var(--portal-text-secondary)" }}>
+                          {role.scopeBn}
+                        </span>
+                        <span style={{ fontSize: "0.6875rem", color: "var(--portal-text-secondary)", opacity: 0.75 }}>
+                          {MOCK_ROLE_IDENTITIES[role.key as StaffRole]?.displayName}
+                        </span>
+                      </button>
+                    ))}
+                  </div>
+                )}
                 {staffError && (
                   <p style={{ fontFamily: "var(--font-bn)", color: "#dc2626", fontSize: "0.8125rem", marginTop: "var(--space-md)", fontWeight: 500 }}>
                     {staffError}
                   </p>
                 )}
               </div>
-              <Button onClick={handleStaffLogin} fullWidth loading={isStaffLoading}>
-                স্টাফ পোর্টালে প্রবেশ করুন
+              <Button
+                onClick={handleStaffLogin}
+                fullWidth
+                loading={isStaffLoading}
+                disabled={!selectedRole}
+              >
+                {selectedRole ? "স্টাফ পোর্টালে প্রবেশ করুন" : "প্রথমে একটি রোল নির্বাচন করুন"}
               </Button>
             </div>
           )}

@@ -707,7 +707,7 @@ async function getAuthenticatedUser(request: Request, db: any): Promise<any | nu
   if (!token || !db) return null;
   const row = await db
     .prepare(
-      `SELECT u.id, u.role, u.display_name, u.status, u.verification_status, u.is_mock
+      `SELECT u.id, u.role, u.role_key, u.display_name, u.status, u.verification_status, u.is_mock
        FROM auth_sessions s
        JOIN users u ON u.id = s.user_id
        WHERE s.token_hash = ? AND s.revoked_at IS NULL AND s.expires_at > CURRENT_TIMESTAMP
@@ -719,7 +719,8 @@ async function getAuthenticatedUser(request: Request, db: any): Promise<any | nu
   return {
     id: row.id,
     displayName: row.display_name,
-    role: row.role,
+    // role_key carries the canonical DBLA role; legacy rows fall back to users.role.
+    role: row.role_key || row.role,
     status: row.status,
     verificationStatus: row.verification_status,
     isMock: Boolean(row.is_mock),

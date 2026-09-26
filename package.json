@@ -10,7 +10,9 @@
     "start": "next start",
     "lint": "eslint",
     "test:semantic": "jiti scripts/test-semantic-bridge.ts",
-    "test:identity": "jiti scripts/test-identity-registry.ts"
+    "test:identity": "jiti scripts/test-identity-registry.ts",
+    "test:case-rules": "jiti scripts/test-case-rules.ts",
+    "test:case-flows": "jiti scripts/test-case-flows.ts"
   },
   "dependencies": {
     "@ai-sdk/openai": "^4.0.73",

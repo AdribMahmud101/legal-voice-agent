@@ -22,6 +22,7 @@ export function AgentFab() {
     intakeStep,
     intakeData,
     transcript,
+    interimText,
     metrics,
     start,
     sendMessage,
@@ -92,6 +93,7 @@ export function AgentFab() {
         intakeStep={intakeStep}
         intakeData={intakeData}
         transcript={transcript}
+        interimText={interimText}
         metrics={metrics}
         docket={docket}
         start={start}

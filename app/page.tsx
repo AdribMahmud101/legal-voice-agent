@@ -21,6 +21,7 @@ export default function Home() {
     intakeStep,
     intakeData,
     transcript,
+    interimText,
     metrics,
     start,
     sendMessage,
@@ -96,6 +97,7 @@ export default function Home() {
         intakeStep={intakeStep}
         intakeData={intakeData}
         transcript={transcript}
+        interimText={interimText}
         metrics={metrics}
         docket={docket}
         start={start}

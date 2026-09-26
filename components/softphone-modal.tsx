@@ -136,6 +136,8 @@ interface SoftphoneModalProps {
   intakeStep: IntakeStep;
   intakeData: IntakeData;
   transcript: TranscriptEntry[];
+  /** Live partial recognition, cleared when the turn commits. */
+  interimText: string;
   metrics: LatencyMetrics | null;
   docket: CaseDocket | null;
   start: (config?: Partial<SdkConfig>) => Promise<void>;
@@ -155,6 +157,7 @@ export function SoftphoneModal({
   intakeStep,
   intakeData,
   transcript,
+  interimText,
   metrics,
   docket,
   start,
@@ -641,7 +644,35 @@ export function SoftphoneModal({
              <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-200 pb-2">
                <div className="flex min-w-0 flex-1 items-center gap-2">
 
-                <button
+                {/* Live transcription, above the tabs on purpose: the docket tab is the default
+                    view and only shows "waiting" placeholders, so a caller watching
+                    the softphone would otherwise see nothing at all until their
+                    whole sentence appeared at once. */}
+                  <div
+                    data-testid="live-transcript-strip"
+                    className="rounded-xl border border-slate-200 bg-slate-50 px-3 py-2"
+                  >
+                    <div className="flex items-start gap-2">
+                      <span className="text-[10px] font-semibold uppercase tracking-wider text-slate-500 shrink-0 pt-0.5">
+                        {interimText ? "👤 আপনি (কলার)" : "🎙 আপনি বলছেন"}
+                      </span>
+                      <p className="text-xs leading-relaxed text-slate-700 min-h-[1rem] break-words">
+                        {interimText || (
+                          <span className="text-slate-400">
+                            শুনছি…
+                          </span>
+                        )}
+                        {interimText ? (
+                          <span
+                            className="inline-block w-1.5 h-3 ml-0.5 align-middle bg-emerald-700 animate-pulse"
+                            aria-hidden="true"
+                          />
+                        ) : null}
+                      </p>
+                    </div>
+                  </div>
+
+<button
                   onClick={() => setActiveTab("docket")}
                    className={`min-h-11 flex-1 px-2.5 sm:px-3.5 py-2 rounded-xl text-xs font-semibold transition cursor-pointer sm:flex-none ${
 
