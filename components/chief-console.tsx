@@ -78,7 +78,6 @@ type Case = {
   severity: string | null;
   category: string | null;
   createdAt: string | null;
-  mediationCount: number;
 };
 
 type AuditEntry = {
