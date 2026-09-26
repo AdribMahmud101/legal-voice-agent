@@ -33,7 +33,14 @@ interface ConsultationResponse {
 
 const SEEN_KEY = "dlas.consultation.seen";
 
-export default function ConsultationPanel({ applicantName }: { applicantName: string }) {
+export default function ConsultationPanel({
+  applicantName,
+  onConsultationComplete,
+}: {
+  applicantName: string;
+  /** Fired once the case actually exists, so other panels can stop showing pre-consultation state. */
+  onConsultationComplete?: () => void;
+}) {
   const router = useRouter();
   const [open, setOpen] = useState(false);
   const [state, setState] = useState<"idle" | "starting" | "ready" | "error">("idle");
@@ -47,6 +54,11 @@ export default function ConsultationPanel({ applicantName }: { applicantName: st
   const [explainerOpen, setExplainerOpen] = useState(true);
   const dialogRef = useRef<HTMLDivElement | null>(null);
   const launchedRef = useRef(false);
+
+  const onConsultationCompleteRef = useRef(onConsultationComplete);
+  useEffect(() => {
+    onConsultationCompleteRef.current = onConsultationComplete;
+  }, [onConsultationComplete]);
 
   const start = useCallback(async () => {
     setState("starting");
@@ -73,6 +85,10 @@ export default function ConsultationPanel({ applicantName }: { applicantName: st
       setState("ready");
       setOpen(true);
       setFinished(false);
+      // The case and the lawyer assignment exist from this moment, not when the
+      // animation ends. Anything else on the page that reads the case was fetched
+      // before this point and is holding a pre-consultation snapshot.
+      onConsultationCompleteRef.current?.();
     } catch {
       setError("সংলাপ শুরু করা যায়নি");
       setState("error");

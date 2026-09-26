@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { getCloudflareContext } from "@opennextjs/cloudflare";
+import { TERMINAL_STATUSES } from "@/lib/case/domain";
 import { getD1SessionUser, type D1Database } from "@/lib/auth/d1-session";
 import { getLocalSessionUser } from "@/lib/auth/local-session";
 import type { SessionUser } from "@/lib/auth/roles";
@@ -41,6 +42,7 @@ interface ProfileApplicationRow {
   created_at: string;
   docket_id: string | null;
   status: string | null;
+  stage: string | null;
 }
 
 export async function GET(request: Request) {
@@ -72,7 +74,7 @@ export async function GET(request: Request) {
       .prepare(
         `SELECT a.id, a.case_id, a.applicant_name, a.source, a.source_language,
                 a.urgency, a.priority, a.created_at,
-                c.docket_id, c.status
+                c.docket_id, c.status, c.stage
          FROM applications a
          LEFT JOIN cases c ON c.id = a.case_id
          WHERE a.applicant_user_id = ?
@@ -82,8 +84,12 @@ export async function GET(request: Request) {
       .all<ProfileApplicationRow>();
 
     const applications = applicationRows.results ?? [];
-    const activeStatuses = new Set(["submitted", "pending_review", "assigned", "under_review"]);
-    const closedStatuses = new Set(["closed", "resolved", "rejected"]);
+    // Counted from `cases.stage`, the case lifecycle, not `cases.status`. `status` is
+    // the portal-facing column and stays "submitted" for the life of the case, so
+    // counting against it reported every case as active and never reported a closure.
+    // stage is constrained to CASE_STATUSES and is what the domain rules operate on,
+    // so the two numbers here cannot disagree with the DLAO's view.
+    const terminalStages = new Set<string>(TERMINAL_STATUSES);
 
     const toApplication = (row: ProfileApplicationRow) => ({
       applicationId: row.id,
@@ -158,8 +164,8 @@ export async function GET(request: Request) {
       },
       stats: {
         totalApplications: applications.length,
-        activeCases: applications.filter((row) => activeStatuses.has(row.status || "")).length,
-        closedCases: applications.filter((row) => closedStatuses.has(row.status || "")).length,
+        activeCases: applications.filter((row) => !terminalStages.has(row.stage || "")).length,
+        closedCases: applications.filter((row) => terminalStages.has(row.stage || "")).length,
         voiceApplications: applications.filter((row) => row.source === "voice").length,
       },
       applications: applications.slice(0, 10).map(toApplication),

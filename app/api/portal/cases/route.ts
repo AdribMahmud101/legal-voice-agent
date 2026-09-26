@@ -77,10 +77,14 @@ export async function GET(request: Request) {
     }
 
     // A case screened as emergency/sensitive (Category A of the severity spec) is
-    // restricted to the DLAO and the Chief DLAO. Applied after the role scoping
-    // above, and never to a citizen's own case: the applicant must always be able
-    // to see the application they filed.
-    const visible = canSeeSensitiveCases(user.role)
+    // restricted to the DLAO and the Chief DLAO.
+    //
+    // The applicant's own list is exempt. This was previously applied unconditionally,
+    // which hid a woman's own emergency case from her and made the dashboard claim
+    // she had no case at all. Restricting a sensitive case means restricting who *else*
+    // can see it — never the person it is about.
+    const isOwnCaseList = user.role === "citizen";
+    const visible = isOwnCaseList || canSeeSensitiveCases(user.role)
       ? results
       : results.filter((row) => !isSensitiveRow(row));
 

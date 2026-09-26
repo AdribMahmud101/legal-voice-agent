@@ -11,6 +11,7 @@ import { Button } from "@/lib/ui/components/Button";
 import { useVoiceSession } from "@/hooks/use-voice-session";
 import { VerificationCard } from "@/components/identity/verification-card";
 import ConsultationPanel from "@/components/consultation-panel";
+import CaseProgressPanel from "@/components/case-progress-panel";
 import { VerificationProgressBar } from "@/components/identity/verification-progress";
 import { getStatusVariant, getStatusLabel } from "@/lib/data/case-store";
 import type { PortalCase } from "@/lib/data/case-projection";
@@ -20,6 +21,8 @@ export default function CitizenDashboard() {
   const { currentUser } = useVoiceSession();
   const [cases, setCases] = useState<PortalCase[]>([]);
   const [loading, setLoading] = useState(true);
+  // Bumped by the consultation so the case panel re-reads the case once it exists.
+  const [caseToken, setCaseToken] = useState(0);
 
   useEffect(() => {
     fetch("/api/portal/cases")
@@ -46,7 +49,13 @@ export default function CitizenDashboard() {
       <VerificationProgressBar className="mb-6" />
 
       {/* The DLAO callback comes first: it is the step that turns an application into a case. */}
-      <ConsultationPanel applicantName={currentUser?.displayName || "আবেদনকারী"} />
+      <ConsultationPanel
+        applicantName={currentUser?.displayName || "আবেদনকারী"}
+        onConsultationComplete={() => setCaseToken((n) => n + 1)}
+      />
+
+      {/* Case progress, the appointed lawyer, and a route to complain about them. */}
+      <CaseProgressPanel refreshToken={caseToken} />
 
       <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(300px, 1fr))", gap: "var(--space-lg)", marginBottom: "var(--space-2xl)" }}>
         <VerificationCard />

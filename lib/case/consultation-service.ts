@@ -209,6 +209,17 @@ export async function startOrResumeConsultation(
     )
     .run();
 
+  // Stage history, so the applicant's progress stepper is showing recorded fact
+  // rather than a stage string read off the current row. Submitted -> review happens
+  // when the application is filed; review -> lawyer only when a lawyer is really on it.
+  await db
+    .prepare(
+      `INSERT INTO case_stage_history (id, case_id, from_stage, to_stage, changed_by, changed_by_role, note)
+       VALUES (?, ?, ?, 'review', ?, 'dlao', ?)`,
+    )
+    .bind(rid("CSH"), caseId, "submitted", input.dlaoUserId, `আবেদন গ্রহণ ও সংলাপ সম্পন্ন: ${input.applicationId}`)
+    .run();
+
   let panelAssignmentId: string | null = null;
   if (script.appointsPanelLawyer && input.panelLawyerId) {
     panelAssignmentId = rid("PA");
@@ -233,6 +244,16 @@ export async function startOrResumeConsultation(
         script.decision.act.bn,
         `${script.decision.basisBn} — ${script.actSentenceBn}`,
       )
+      .run();
+  }
+
+  if (script.appointsPanelLawyer && input.panelLawyerId) {
+    await db
+      .prepare(
+        `INSERT INTO case_stage_history (id, case_id, from_stage, to_stage, changed_by, changed_by_role, note)
+         VALUES (?, ?, 'review', 'lawyer', ?, 'dlao', ?)`,
+      )
+      .bind(rid("CSH"), caseId, input.dlaoUserId, `${script.decision.basisBn} — প্যানেল আইনজীবী নিয়োগ`)
       .run();
   }
 
