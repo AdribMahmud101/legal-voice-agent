@@ -1,8 +1,8 @@
 import { chromium } from 'playwright-core';
-import fs from 'fs';
+import { createNidFixture } from './lib/nid-fixture.mjs';
 
 const site = 'https://legal-voice-agent.adribmahmud.workers.dev/';
-const fixture = fs.readFileSync('/tmp/opencode/fake-nid2.png').toString('base64');
+const fixture = await createNidFixture();
 
 async function main() {
   const browser = await chromium.launch({

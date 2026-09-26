@@ -1,5 +1,5 @@
 import { chromium } from 'playwright-core';
-import fs from 'fs';
+import { createNidFixture } from './lib/nid-fixture.mjs';
 
 const site = 'https://legal-voice-agent.adribmahmud.workers.dev/';
 
@@ -112,7 +112,7 @@ async function main() {
   }
 
   // ---- OCR photo path against the real DeepInfra model ----
-  const png = fs.readFileSync('/tmp/opencode/fake-nid2.png').toString('base64');
+  const png = await createNidFixture();
   const ocr = await page.evaluate(async (b64) => {
     const bytes = Uint8Array.from(atob(b64), (c) => c.charCodeAt(0));
     const fd = new FormData();
