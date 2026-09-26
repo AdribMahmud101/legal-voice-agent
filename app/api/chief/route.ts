@@ -186,9 +186,10 @@ export async function GET(request: Request) {
     casesResult = await db
       .prepare(
         `SELECT c.id, c.docket_id AS ref, c.status, c.stage, c.problem, c.district,
-                c.applicant_name AS applicantName, c.phone, c.priority, c.severity,
-                c.legal_category AS category, c.created_at AS createdAt
+                c.category, c.created_at AS createdAt,
+                u.display_name AS applicantName, u.phone
            FROM cases c
+           LEFT JOIN users u ON u.id = c.citizen_user_id
           ORDER BY c.created_at DESC
           LIMIT 200`,
       )
