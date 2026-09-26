@@ -1,5 +1,5 @@
 import type { Metadata } from "next";
-import { Geist, Geist_Mono, Hind_Siliguri } from "next/font/google";
+import { Geist, Geist_Mono, Noto_Sans_Bengali } from "next/font/google";
 import "./globals.css";
 import "./portal.css";
 import "@/lib/ui/theme/tokens.css";
@@ -14,10 +14,18 @@ const geistMono = Geist_Mono({
   subsets: ["latin"],
 });
 
-const hindSiliguri = Hind_Siliguri({
-  variable: "--font-hind-siliguri",
+/**
+ * Noto Sans Bengali — the best Bangla font for government websites.
+ * - Full Unicode coverage for all Bengali characters
+ * - Highly readable at all sizes
+ * - Standard font used by many official Bangladesh govt websites
+ * - Excellent rendering on all devices
+ */
+const notoSansBengali = Noto_Sans_Bengali({
+  variable: "--font-noto-bengali",
   subsets: ["bengali", "latin"],
   weight: ["400", "500", "600", "700"],
+  display: "swap",
 });
 
 export const metadata: Metadata = {
@@ -29,7 +37,7 @@ export default function RootLayout({ children }: LayoutProps<"/">) {
   return (
     <html
       lang="bn"
-      className={`${geistSans.variable} ${geistMono.variable} ${hindSiliguri.variable} h-full antialiased`}
+      className={`${geistSans.variable} ${geistMono.variable} ${notoSansBengali.variable} h-full antialiased`}
     >
       <body className="min-h-full flex flex-col bg-slate-50 text-slate-900">{children}</body>
     </html>
