@@ -53,6 +53,19 @@ type Officer = {
   openCases: number;
 };
 
+type AuditEntry = {
+  id: string;
+  kind: string;
+  refId: string | null;
+  actorId: string | null;
+  actorRole: string | null;
+  detail: string | null;
+  reason: string | null;
+  at: string;
+  actorName: string | null;
+  refLabel: string | null;
+};
+
 type ChiefData = {
   role: ChiefRole;
   permissions: {
@@ -73,6 +86,11 @@ type ChiefData = {
   certifications: Certification[];
   payments: Payment[];
   officers: Officer[];
+  audit: {
+    entries: AuditEntry[];
+    counts: Record<string, number>;
+    totalLast7Days: number;
+  };
 };
 
 const TABS = [
@@ -81,9 +99,42 @@ const TABS = [
   { id: "payments", label: "পেমেন্ট অনুমোদন" },
   { id: "panel", label: "প্যানেল তালিকা" },
   { id: "misconduct", label: "অসদাচরণ" },
+  { id: "audit", label: "অডিট ট্রেইল" },
 ] as const;
 
 type TabId = (typeof TABS)[number]["id"];
+
+/** Bangla labels for audit event kinds */
+const AUDIT_KIND_LABELS: Record<string, string> = {
+  "auth.login": "লগইন",
+  "auth.login_failed": "লগইন ব্যর্থ",
+  "auth.logout": "লগআউট",
+  "auth.session_denied": "অ্যাক্সেস প্রত্যাখ্যান",
+  "user.create": "ব্যবহারকারী তৈরি",
+  "user.role_changed": "ভূমিকা পরিবর্তন",
+  "user.status_changed": "স্ট্যাটাস পরিবর্তন",
+  "user.pin_reset": "পিন রিসেট",
+  "case.create": "কেস তৈরি",
+  "case.stage_changed": "কেস স্তর পরিবর্তন",
+  "case.viewed_sensitive": "সংবেদনশীল তথ্য দেখা",
+  "case.note_added": "নোট যোগ",
+  "application.filed": "আবেদন দাখিল",
+  "consultation.started": "পরামর্শ শুরু",
+  "consultation.viewed": "পরামর্শ দেখা",
+  "eligibility.decided": "যোগ্যতা সিদ্ধান্ত",
+  "lawyer.assign": "আইনজীবী নিয়োগ",
+  "lawyer.reassign": "আইনজীবী পুনঃনিয়োগ",
+  "complaint.filed": "অভিযোগ দাখিল",
+  "complaint.resolved": "অভিযোগ নিষ্পত্তি",
+  "payment.approved": "পেমেন্ট অনুমোদন",
+  "mediation.scheduled": "মধ্যস্থতা নির্ধারিত",
+  "settlement.certified": "নিষ্পত্তি প্রত্যায়িত",
+  "message.queued": "বার্তা সারিবদ্ধ",
+  "message.blocked": "বার্তা ব্লক",
+  "admin.audit_viewed": "অডিট দেখা",
+  "admin.roster_seeded": "রোস্টার সিড",
+  "admin.config_changed": "কনফিগ পরিবর্তন",
+};
 
 export default function ChiefConsole() {
   const router = useRouter();
@@ -93,6 +144,8 @@ export default function ChiefConsole() {
   const [busy, setBusy] = useState<string | null>(null);
   const [toast, setToast] = useState<{ tone: "ok" | "warn"; text: string } | null>(null);
   const [reasons, setReasons] = useState<Record<string, string>>({});
+  const [selectedAudit, setSelectedAudit] = useState<AuditEntry | null>(null);
+  const [loggingOut, setLoggingOut] = useState(false);
 
   const load = useCallback(async () => {
     const res = await fetch("/api/chief", { cache: "no-store" });
@@ -142,6 +195,16 @@ export default function ChiefConsole() {
     [load],
   );
 
+  const handleLogout = useCallback(async () => {
+    setLoggingOut(true);
+    try {
+      await fetch("/api/auth/logout", { method: "POST" });
+      router.push("/login");
+    } catch {
+      setLoggingOut(false);
+    }
+  }, [router]);
+
   if (denied) {
     return (
       <main className="mx-auto max-w-2xl px-4 py-16 text-center">
@@ -172,14 +235,25 @@ export default function ChiefConsole() {
   return (
     <main className="mx-auto max-w-6xl px-4 py-6">
       <header className="border-b border-slate-200 pb-4">
-        <h1 className="text-xl font-semibold">চীফ লিগ্যাল এইড অফিসার কনসোল</h1>
-        <p className="mt-1 text-sm text-slate-600">
-          আপনি সালিশকরণ প্রত্যায়ন করেন, প্যানেল আইনজীবী তালিকা রক্ষণাবেক্ষণ করেন এবং অফিস পরিদর্শন করেন।
-          দৈনন্দিন মামলার কাজ লিগ্যাল এইড অফিসারের।
-        </p>
-        <p className="mt-1 text-xs text-slate-500">
-          ভূমিকা: {isChairman ? "জেলা কমিটির চেয়ারম্যান" : "চীফ লিগ্যাল এইড অফিসার"}
-        </p>
+        <div className="flex items-start justify-between gap-4">
+          <div>
+            <h1 className="text-xl font-semibold">চীফ লিগ্যাল এইড অফিসার কনসোল</h1>
+            <p className="mt-1 text-sm text-slate-600">
+              আপনি সালিশকরণ প্রত্যায়ন করেন, প্যানেল আইনজীবী তালিকা রক্ষণাবেক্ষণ করেন এবং অফিস পরিদর্শন করেন।
+              দৈনন্দিন মামলার কাজ লিগ্যাল এইড অফিসারের।
+            </p>
+            <p className="mt-1 text-xs text-slate-500">
+              ভূমিকা: {isChairman ? "জেলা কমিটির চেয়ারম্যান" : "চীফ লিগ্যাল এইড অফিসার"}
+            </p>
+          </div>
+          <button
+            onClick={handleLogout}
+            disabled={loggingOut}
+            className="flex items-center gap-2 rounded-lg border border-slate-300 bg-white px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50 disabled:opacity-50"
+          >
+            {loggingOut ? "..." : "লগ আউট"}
+          </button>
+        </div>
       </header>
 
       {(data.slaWarning > 0 || data.slaBreaches > 0) && (
@@ -387,6 +461,152 @@ export default function ChiefConsole() {
               : "অসদাচরণের সিদ্ধান্ত কমিটির আধিপত্য — চীফ এককভাবে ব্যবস্থা নিতে পারেন না।"}
           </p>
         </section>
+      )}
+
+      {tab === "audit" && (
+        <section className="mt-5">
+          <div className="mb-4 flex items-center justify-between">
+            <div>
+              <h2 className="text-sm font-semibold">অডিট ট্রেইল</h2>
+              <p className="text-xs text-slate-500">
+                গত ৭ দিনে {data.audit.totalLast7Days} টি কার্যক্রম রেকর্ড হয়েছে
+              </p>
+            </div>
+          </div>
+
+          {data.audit.entries.length === 0 ? (
+            <p className="text-sm text-slate-500">কোনো অডিট রেকর্ড নেই।</p>
+          ) : (
+            <div className="overflow-hidden rounded-lg border border-slate-200">
+              <table className="w-full text-sm">
+                <thead className="bg-slate-50">
+                  <tr className="border-b border-slate-200 text-left text-xs font-medium text-slate-600">
+                    <th className="px-3 py-2">সময়</th>
+                    <th className="px-3 py-2">কার্যক্রম</th>
+                    <th className="px-3 py-2">ব্যবহারকারী</th>
+                    <th className="px-3 py-2">বিবরণ</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {data.audit.entries.map((entry) => (
+                    <tr
+                      key={entry.id}
+                      onClick={() => setSelectedAudit(entry)}
+                      className="cursor-pointer border-b border-slate-100 transition-colors hover:bg-slate-50"
+                    >
+                      <td className="px-3 py-2 text-xs text-slate-500">
+                        {new Date(entry.at).toLocaleString("bn-BD", {
+                          day: "numeric",
+                          month: "short",
+                          hour: "2-digit",
+                          minute: "2-digit",
+                        })}
+                      </td>
+                      <td className="px-3 py-2">
+                        <span className="inline-block rounded bg-slate-100 px-2 py-0.5 text-xs font-medium text-slate-700">
+                          {AUDIT_KIND_LABELS[entry.kind] ?? entry.kind}
+                        </span>
+                      </td>
+                      <td className="px-3 py-2 text-slate-700">
+                        {entry.actorName || entry.actorRole || "সিস্টেম"}
+                      </td>
+                      <td className="max-w-xs truncate px-3 py-2 text-slate-600">
+                        {entry.detail || "—"}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </section>
+      )}
+
+      {/* Audit Detail Popup */}
+      {selectedAudit && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4"
+          onClick={() => setSelectedAudit(null)}
+        >
+          <div
+            className="w-full max-w-lg rounded-xl bg-white p-6 shadow-xl"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="mb-4 flex items-start justify-between">
+              <h3 className="text-lg font-semibold">অডিট বিস্তারিত</h3>
+              <button
+                onClick={() => setSelectedAudit(null)}
+                className="text-slate-400 hover:text-slate-600"
+              >
+                ✕
+              </button>
+            </div>
+
+            <div className="space-y-3">
+              <div className="rounded-lg bg-slate-50 p-3">
+                <p className="text-xs font-medium text-slate-500">কার্যক্রম</p>
+                <p className="mt-1 text-sm font-semibold text-slate-800">
+                  {AUDIT_KIND_LABELS[selectedAudit.kind] ?? selectedAudit.kind}
+                </p>
+              </div>
+
+              <div className="grid grid-cols-2 gap-3">
+                <div className="rounded-lg bg-slate-50 p-3">
+                  <p className="text-xs font-medium text-slate-500">সময়</p>
+                  <p className="mt-1 text-sm text-slate-800">
+                    {new Date(selectedAudit.at).toLocaleString("bn-BD", {
+                      dateStyle: "medium",
+                      timeStyle: "short",
+                    })}
+                  </p>
+                </div>
+                <div className="rounded-lg bg-slate-50 p-3">
+                  <p className="text-xs font-medium text-slate-500">ব্যবহারকারী</p>
+                  <p className="mt-1 text-sm text-slate-800">
+                    {selectedAudit.actorName || selectedAudit.actorRole || "সিস্টেম"}
+                  </p>
+                </div>
+              </div>
+
+              {selectedAudit.actorRole && (
+                <div className="rounded-lg bg-slate-50 p-3">
+                  <p className="text-xs font-medium text-slate-500">ভূমিকা</p>
+                  <p className="mt-1 text-sm text-slate-800">{selectedAudit.actorRole}</p>
+                </div>
+              )}
+
+              {selectedAudit.detail && (
+                <div className="rounded-lg bg-slate-50 p-3">
+                  <p className="text-xs font-medium text-slate-500">বিবরণ</p>
+                  <p className="mt-1 text-sm text-slate-800">{selectedAudit.detail}</p>
+                </div>
+              )}
+
+              {selectedAudit.reason && (
+                <div className="rounded-lg bg-amber-50 p-3">
+                  <p className="text-xs font-medium text-amber-700">কারণ</p>
+                  <p className="mt-1 text-sm text-amber-900">{selectedAudit.reason}</p>
+                </div>
+              )}
+
+              {selectedAudit.refId && (
+                <div className="rounded-lg bg-slate-50 p-3">
+                  <p className="text-xs font-medium text-slate-500">রেফারেন্স ID</p>
+                  <p className="mt-1 font-mono text-xs text-slate-600">
+                    {selectedAudit.refLabel || selectedAudit.refId}
+                  </p>
+                </div>
+              )}
+            </div>
+
+            <button
+              onClick={() => setSelectedAudit(null)}
+              className="mt-5 w-full rounded-lg bg-slate-800 py-2.5 text-sm font-medium text-white hover:bg-slate-700"
+            >
+              বন্ধ করুন
+            </button>
+          </div>
+        </div>
       )}
     </main>
   );

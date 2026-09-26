@@ -10,7 +10,7 @@
 
 import { NextResponse } from "next/server";
 import { getAdminDatabase } from "@/lib/auth/admin-guard";
-import { writeAudit, AUDIT_KINDS } from "@/lib/audit/log";
+import { writeAudit, AUDIT_KINDS, queryAudit, auditCounts } from "@/lib/audit/log";
 import { certificationState, slaScan, type SlaCandidate } from "@/lib/case/domain";
 import {
   canAccessScreen,
@@ -162,6 +162,13 @@ export async function GET(request: Request) {
     .prepare("SELECT COUNT(*) AS n FROM misconduct_cases WHERE verdict = 'open'")
     .first<{ n: number }>();
 
+  // Audit trail - last 7 days
+  const since = new Date(Date.now() - 7 * 86_400_000).toISOString();
+  const [auditEntries, auditCountsData] = await Promise.all([
+    queryAudit(db, { since, limit: 100 }),
+    auditCounts(db, since),
+  ]);
+
   return NextResponse.json({
     ok: true,
     role,
@@ -183,6 +190,11 @@ export async function GET(request: Request) {
     certifications,
     payments: pendingPayments,
     officers: officers.results ?? [],
+    audit: {
+      entries: auditEntries,
+      counts: auditCountsData,
+      totalLast7Days: auditEntries.length,
+    },
   });
 }
 
