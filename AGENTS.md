@@ -336,3 +336,50 @@ Two failures that look identical from the caller's seat but are not the same bug
 - The launcher stacks above the 16699 call button (bottom 84px, panel 148px) so
   the portal's primary action keeps its exact position.
 
+
+## Five citizen scenarios — one-click demo login (Part A)
+
+- The brief's Part A names five personas and says they are **mandatory, not
+  alternatives**: the prototype must show how the same architecture resolves each
+  barrier. `lib/demo/personas.ts` is the ONE definition of that cast — pure and
+  dependency-free, so the login picker, the dashboard, the API route and the seed
+  migration all read the same numbers. If a persona's data lives in two places it
+  will drift, and a drifting demo is worse than no demo.
+- `POST /api/portal/demo-login` `{ personaId }` issues the session. **It is
+  deliberately absent from `worker-entry.ts`'s intercept table**, so the same code
+  runs under the Worker and under `next dev`. The ~18 intercepted paths behave
+  differently on the two runtimes; adding a demo endpoint there would mean writing
+  it twice. This one does its own `getCloudflareContext()` and falls back to a local
+  session when there is no D1 binding, so the button is never a dead 503.
+- It is not an auth bypass. Every row it touches is `users.is_mock = 1` and
+  `cases.is_demo = 1`, and it only ever issues a session for an account it already
+  knows. The persona PINs (1001-1005) are real SHA-256 `pin_hash` values, so a
+  reviewer can walk the **actual** phone + PIN form too — the one-click path is a
+  shortcut, not a replacement.
+- Ids are fixed strings and every write is `INSERT OR IGNORE`, in both the route
+  and `migrations/0030_citizen_persona_demo.sql`. The two converge on one row
+  instead of racing to create two, so the demo works on a fresh database, a
+  half-migrated one, and a fully seeded one alike.
+- The switcher uses `window.location.href`, not `router.push`. The session cookie is
+  HttpOnly and `proxy.ts` re-reads it on a document request, so a soft navigation
+  would leave the page rendering as the *previous* person.
+- The dashboard's demo banner is gated on `personaForUserId(currentUser.id)`,
+  matched on the seeded `users.id`. A real applicant cannot have one, so the banner
+  cannot appear for them — which is why there is no "is this a demo session" flag to
+  get wrong.
+- The spec's third column is **minimum evidence**: what the system must
+  demonstrably do, so it is rendered as a checklist to look for, never as work
+  already ticked. The failure tests in the brief (an unsafe person answers the
+  phone; the network drops mid-submission; the panel lawyer misses an update) are
+  seeded as real rows — `safe_contact_destinations.rule = 'block'`, Nuching's
+  unconfirmed `udc_typed_reading`, Malek's `lawyer_sla_violations` + payment freeze
+  — so the clocks are running rather than narrated.
+- A4's `has_disability` is deliberately **0**. "Cannot read" is a real access
+  barrier but it is not the disability field, and claiming it would misrepresent the
+  applicant. The literacy barrier is a `case_facts` row with its provenance instead.
+  A2's `case_reps` row is what carries the proxy authority scope, with
+  `can_access_bn` and `cannot_access_bn` as separate fields — the brief requires the
+  record to show what Moyuri has *not* confirmed.
+- `scripts/verify_persona_demo_login.mjs` is **FREE** (no call, no STT/TTS, no LLM).
+  It checks the spec page, one click per persona, cross-persona isolation, and that
+  re-login does not duplicate cases. Confirmed free by the AGENTS.md grep.

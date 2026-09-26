@@ -13,6 +13,7 @@ import {
 import { Button } from "@/lib/ui/components/Button";
 import { FormField } from "@/lib/ui/components/FormField";
 import { Card, CardContent } from "@/lib/ui/components/Card";
+import { PersonaSwitcher } from "@/components/demo/persona-switcher";
 import { homePathForRole } from "@/lib/auth/screen-guard";
 
 /**
@@ -157,6 +158,7 @@ function LoginContent() {
 
         <CardContent>
           {activeTab === "citizen" ? (
+            <>
             <form onSubmit={handleCitizenLogin} style={{ display: "flex", flexDirection: "column", gap: "var(--space-xl)" }}>
               <div>
                 <p style={{ fontFamily: "var(--font-bn)", fontSize: "0.875rem", color: "var(--portal-text-secondary)", marginBottom: "var(--space-lg)" }}>
@@ -193,6 +195,59 @@ function LoginContent() {
                 লগইন করুন
               </Button>
             </form>
+
+              {/* Part A of the brief. These five people are the prototype's required
+                  scenarios, and none of them can use the form above: two are not safely
+                  reachable on a phone at all, one is blind, one cannot read, and one
+                  has no smartphone. Asking them to type a phone number and a PIN would
+                  demonstrate the opposite of what the brief asks for, so the demo path
+                  is a single click. The form above stays because the voice-PIN login is
+                  a real path and worth showing too. */}
+              <div
+                style={{
+                  marginTop: "var(--space-2xl)",
+                  paddingTop: "var(--space-lg)",
+                  borderTop: "1px solid var(--portal-border)",
+                }}
+              >
+                <p
+                  style={{
+                    fontFamily: "var(--font-bn)",
+                    fontSize: "0.875rem",
+                    fontWeight: 700,
+                    color: "var(--portal-text)",
+                    margin: "0 0 var(--space-xs)",
+                  }}
+                >
+                  ডেমো: এক ক্লিকে নাগরিক লগইন
+                </p>
+                <p
+                  style={{
+                    fontFamily: "var(--font-bn)",
+                    fontSize: "0.8125rem",
+                    color: "var(--portal-text-secondary)",
+                    margin: "0 0 var(--space-md)",
+                  }}
+                >
+                  ব্রিফের পাঁচটি আবশ্যিক সিনারিও। যেকোনো একটিতে চাপলেই সেই ব্যক্তির পোর্টাল খুলবে।
+                </p>
+                <PersonaSwitcher variant="compact" />
+                <Link
+                  href="/demo"
+                  style={{
+                    display: "inline-block",
+                    marginTop: "var(--space-md)",
+                    fontFamily: "var(--font-bn)",
+                    fontSize: "0.8125rem",
+                    fontWeight: 600,
+                    color: "var(--portal-accent-text)",
+                    textDecoration: "none",
+                  }}
+                >
+                  পাঁচটি সিনারিও ও তাদের শর্ত বিস্তারিত দেখুন →
+                </Link>
+              </div>
+            </>
           ) : (
             <div style={{ display: "flex", flexDirection: "column", gap: "var(--space-xl)" }}>
               <div>

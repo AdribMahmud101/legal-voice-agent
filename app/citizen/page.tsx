@@ -14,6 +14,8 @@ import ConsultationPanel from "@/components/consultation-panel";
 import CaseProgressPanel from "@/components/case-progress-panel";
 import { VerificationProgressBar } from "@/components/identity/verification-progress";
 import { getStatusVariant, getStatusLabel } from "@/lib/data/case-store";
+import { personaForUserId } from "@/lib/demo/personas";
+import { PersonaSwitcher } from "@/components/demo/persona-switcher";
 import type { PortalCase } from "@/lib/data/case-projection";
 
 export default function CitizenDashboard() {
@@ -23,6 +25,9 @@ export default function CitizenDashboard() {
   const [loading, setLoading] = useState(true);
   // Bumped by the consultation so the case panel re-reads the case once it exists.
   const [caseToken, setCaseToken] = useState(0);
+
+  // Null for a real applicant, which is what keeps the demo banner off their screen.
+  const demoPersona = personaForUserId(currentUser?.id);
 
   useEffect(() => {
     fetch("/api/portal/cases")
@@ -47,6 +52,120 @@ export default function CitizenDashboard() {
       </div>
 
       <VerificationProgressBar className="mb-6" />
+
+      {/* Demo banner. Only rendered when the session IS one of the five seeded
+          personas — a real applicant never sees this, because the match is on the
+          seeded users.id and a real account cannot have one. */}
+      {demoPersona && (
+        <Card style={{ marginBottom: "var(--space-2xl)", borderStyle: "dashed" }}>
+          <CardContent style={{ display: "flex", flexDirection: "column", gap: "var(--space-md)" }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+              <span
+                style={{
+                  fontSize: "0.6875rem",
+                  fontWeight: 700,
+                  background: "var(--portal-accent)",
+                  color: "var(--portal-text-on-accent)",
+                  borderRadius: "var(--radius-full)",
+                  padding: "3px 8px",
+                }}
+              >
+                {demoPersona.code}
+              </span>
+              <h2
+                style={{
+                  fontFamily: "var(--font-bn)",
+                  fontSize: "1rem",
+                  fontWeight: 700,
+                  color: "var(--portal-text)",
+                  margin: 0,
+                }}
+              >
+                ডেমো মোড — {demoPersona.nameBn}, {demoPersona.districtBn}
+              </h2>
+            </div>
+
+            <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(260px, 1fr))", gap: "var(--space-lg)" }}>
+              <div>
+                <h3
+                  style={{
+                    fontFamily: "var(--font-bn)",
+                    fontSize: "0.6875rem",
+                    fontWeight: 700,
+                    letterSpacing: "0.04em",
+                    textTransform: "uppercase",
+                    color: "var(--portal-text-secondary)",
+                    margin: "0 0 6px",
+                  }}
+                >
+                  পরিস্থিতি
+                </h3>
+                <p
+                  style={{
+                    fontFamily: "var(--font-bn)",
+                    fontSize: "0.8125rem",
+                    lineHeight: 1.6,
+                    color: "var(--portal-text)",
+                    margin: 0,
+                  }}
+                >
+                  {demoPersona.situationBn}
+                </p>
+              </div>
+
+              <div>
+                <h3
+                  style={{
+                    fontFamily: "var(--font-bn)",
+                    fontSize: "0.6875rem",
+                    fontWeight: 700,
+                    letterSpacing: "0.04em",
+                    textTransform: "uppercase",
+                    color: "var(--portal-text-secondary)",
+                    margin: "0 0 6px",
+                  }}
+                >
+                  যা দেখা উচিত
+                </h3>
+                <ul style={{ margin: 0, padding: 0, listStyle: "none", display: "flex", flexDirection: "column", gap: 6 }}>
+                  {demoPersona.evidenceBn.map((line) => (
+                    <li
+                      key={line}
+                      style={{
+                        display: "flex",
+                        gap: 8,
+                        fontFamily: "var(--font-bn)",
+                        fontSize: "0.8125rem",
+                        lineHeight: 1.55,
+                        color: "var(--portal-text-secondary)",
+                      }}
+                    >
+                      <span aria-hidden="true" style={{ color: "var(--portal-accent)", flexShrink: 0, fontWeight: 700 }}>
+                        ☐
+                      </span>
+                      <span>{line}</span>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            </div>
+
+            <div style={{ borderTop: "1px solid var(--portal-border)", paddingTop: "var(--space-md)" }}>
+              <p
+                style={{
+                  fontFamily: "var(--font-bn)",
+                  fontSize: "0.75rem",
+                  color: "var(--portal-text-secondary)",
+                  margin: "0 0 var(--space-sm)",
+                }}
+              >
+                অন্য কারও নজরে দেখতে চাইলে — এক ক্লিকে বদলান:
+              </p>
+              <PersonaSwitcher variant="compact" activePersonaId={demoPersona.id} />
+            </div>
+          </CardContent>
+        </Card>
+      )}
 
       {/* The DLAO callback comes first: it is the step that turns an application into a case. */}
       <ConsultationPanel
