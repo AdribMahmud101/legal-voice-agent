@@ -54,7 +54,7 @@ const SEVERITY_RULES: SeverityRule[] = [
     category: "Immediate Crisis & Safety",
     categoryBn: "তাৎক্ষণিক নিরাপত্তা ঝুঁকি",
     severity: "emergency",
-    keywords: ["শিশু নির্যাতন", "শিশুকে নির্যাতন", "নারীর উপর নির্যাতন", "ধর্ষণ", "অপহরণ", "ধুয়ে নিয়ে", "গণড়ে"],
+    keywords: ["শিশু নির্যাতন", "শিশুকে নির্যাতন", "নারীর উপর নির্যাতন", "ধর্ষণ", "অপহরণ", "ধুয়ে নিয়ে", "গণড়ে", "যৌনভাবে হয়রানি", "যৌন হয়রানি", "অশ্লীল বার্তা", "অশ্লীল ছবি", "অশ্লীল ভিডিও", "অনুমতি ছাড়া", "যৌন নির্যাতন", "সাইবার পর্দা"],
     factors: ["Immediate Physical Safety Risk", "Applicant Vulnerability & Isolation"],
     legalBasis: ["Nari O Shishu Nirjatan Daman Act, 2000"],
     caseReference: "Moyuri",
@@ -186,7 +186,7 @@ const SEVERITY_RULES: SeverityRule[] = [
     category: "Labor, Cyber & Specialized Rights",
     categoryBn: "শ্রম, সাইবার ও বিশেষ অধিকার",
     severity: "high",
-    keywords: ["ব্ল্যাকমেইল", "ফেসবুকে হয়রাজ", "ভুয়া ছবি", "ছবি ছড়াচ্ছে", "অনলাইনে ভয় দেখাচ্ছে", "সাইবার নির্যাতন", "ছবি অপব্যবহার"],
+    keywords: ["ব্ল্যাকমেইল", "ফেসবুকে হয়রাজ", "ভুয়া ছবি", "ছবি ছড়াচ্ছে", "অনলাইনে ভয় দেখাচ্ছে", "সাইবার নির্যাতন", "ছবি অপব্যবহার", "সাইবার বুলিং", "সাইবার", "অনলাইনে হয়রানি", "অনলাইনে ব্ল্যাকমেইল", "ভুয়া প্রোফাইল", "হ্যাক", "মোবাইল ব্যাংকিং", "সাইবার নিরাপত্তা", "অনলাইনে প্রতারণা"],
     factors: ["Immediate Physical Safety Risk", "Legal Merit & Time Sensitivity"],
     legalBasis: ["Cyber Security Frameworks", "Cross-agency referral protocol"],
     caseReference: "Nabila",
@@ -288,6 +288,77 @@ const SEVERITY_RANK: Record<SeverityLevel, number> = {
   emergency: 3,
 };
 
+/**
+ * Category A of the spec: "Immediate Crisis & Safety (High Severity) ... bypass
+ * standard workflows, block automated SMS notifications ... and escalate the case
+ * for immediate human intervention."
+ *
+ * A Category A case is `sensitive`, and sensitive cases are visible only to the
+ * DLAO and the Chief DLAO. That is derived from the classification rather than
+ * stored in a new column, so it cannot drift out of sync with severity.
+ */
+export const IMMEDIATE_CRISIS_CATEGORY = "Immediate Crisis & Safety";
+
+export function isSensitiveClassification(result: {
+  severity: SeverityLevel;
+  category: string;
+}): boolean {
+  return result.severity === "emergency" || result.category === IMMEDIATE_CRISIS_CATEGORY;
+}
+
+/**
+ * Maps a taxonomy pick onto the spec's tag names.
+ *
+ * This exists because keyword matching alone is not reliable enough here. The
+ * stored problem statement is the category-derived Bangla question, so its wording
+ * is a fixed string we control — the honest signal is the selection itself. An
+ * online sexual-harassment report was being filed as "General Inquiry" because
+ * the Cyber_Harassment keyword list was written from the old prototype's phrasing
+ * and never matched the taxonomy's own sub-category text.
+ *
+ * Sub-category overrides win over the category default, because one category can
+ * span two spec categories: cyber bullying is Category D, but sexual harassment
+ * or child exploitation inside that same category is Category A.
+ */
+const CATEGORY_TAG: Record<string, string | null> = {
+  cyber: "Cyber_Harassment",
+  dowry_violence: "Severe_Violence_NariOShishu",
+  dowry: "Dowry_Demand",
+  maintenance: "Maintenance_Denial",
+  agri_land: "Land_Grabbing_Forged_Deed",
+  non_agri_land: "Property_Transfer_Dispute",
+  inheritance: "Inheritance_Succession",
+  cheque: "Cheque_Dishonour",
+  rent: "Civil_Injunction",
+};
+
+const SUBCATEGORY_TAG: Record<string, string> = {
+  // Non-consensual sexual imagery, and any child online, are Category A.
+  "cyber/y1": "Severe_Violence_NariOShishu",
+  "cyber/y4": "Severe_Violence_NariOShishu",
+  "cyber/y10": "Severe_Violence_NariOShishu",
+  "family/f4": "Child_Custody",
+  "family/f2": "Divorce_Muslim_Law",
+  "family/f10": "Divorce_Muslim_Law",
+};
+
+/**
+ * Returns the spec tag for a taxonomy pick, or null when the choice carries no
+ * spec meaning of its own — the per-category "other" escape hatch, for instance,
+ * must be judged from the words the caller typed, not from the category label.
+ */
+export function tagForSelection(
+  categoryId: string | null | undefined,
+  subcategoryId: string | null | undefined,
+): string | null {
+  if (subcategoryId && subcategoryId !== "other") {
+    const exact = SUBCATEGORY_TAG[`${categoryId}/${subcategoryId}`];
+    if (exact) return exact;
+  }
+  if (subcategoryId === "other" || !subcategoryId) return null;
+  return categoryId ? (CATEGORY_TAG[categoryId] ?? null) : null;
+}
+
 const FACTOR_DEFINITIONS: Record<string, string> = {
   "Immediate Physical Safety Risk":
     "চলমান সহিংসতা, হুমকি, সন্তান বা অন্য কারও তাৎক্ষণিক ঝুঁকি।",
@@ -338,15 +409,37 @@ function buildAcknowledgment(severity: SeverityLevel, categoryBn: string, tagsBn
   return `আপনার বর্ণনায় ${tagText} শনাক্ত হয়েছে। এটি ${categoryBn} হিসেবে উচ্চ অগ্রাধিকারের বিষয়; ${safetyText} আপনি কি এই সমস্যার জন্য আইনি সহায়তা আবেদন ও অভিযোগ নথিভুক্ত করতে চান? হ্যাঁ অথবা না বলুন।`;
 }
 
-export function classifySeverity(input: string): SeverityClassification {
+export interface SeveritySelection {
+  categoryId?: string | null;
+  subcategoryId?: string | null;
+}
+
+export function classifySeverity(
+  input: string,
+  selection?: SeveritySelection,
+): SeverityClassification {
   const text = normalizeText(input);
-  const matched = SEVERITY_RULES.filter((rule) => rule.keywords.some((keyword) => text.includes(normalizeText(keyword))));
+  const byKeyword = SEVERITY_RULES.filter((rule) => rule.keywords.some((keyword) => text.includes(normalizeText(keyword))));
   const personalContext = hasPersonalProblemContext(text);
   const crisisContext = hasCrisisContext(text);
-  const relevant = matched.filter((rule) => {
-    if (rule.severity === "emergency") return crisisContext && personalContext;
+
+  const relevant = byKeyword.filter((rule) => {
+    // The literal crisis word is no longer required for an emergency. A keyword
+    // like "ধর্ষণ" or "যৌনভাবে হয়রানি" already *is* the crisis signal; demanding
+    // the caller also say "জরুরি" meant a rape report could be filed as a routine
+    // general inquiry. Personal context is still required, so a caller merely
+    // asking what the law says about these topics is not auto-escalated.
+    if (rule.severity === "emergency") return personalContext;
     return personalContext;
   });
+
+  // A taxonomy pick is authoritative, so it contributes its rule even when the
+  // derived question text happens to contain none of the keywords.
+  const selectedTag = tagForSelection(selection?.categoryId, selection?.subcategoryId);
+  if (selectedTag) {
+    const byTag = SEVERITY_RULES.find((rule) => rule.tag === selectedTag);
+    if (byTag && !relevant.includes(byTag)) relevant.push(byTag);
+  }
 
   if (relevant.length === 0) {
     return {
@@ -366,9 +459,16 @@ export function classifySeverity(input: string): SeverityClassification {
   const severity = highestSeverity(relevant);
   const matchedTags = relevant.map((rule) => rule.tag);
   const matchedTagsBn = relevant.map((rule) => rule.tagBn);
-  const category = relevant[0].category;
-  const categoryBn = relevant[0].categoryBn;
+  // Report the most severe rule's category, not merely the first match. A cyber
+  // report that is also a Category A sexual-violence matter must be filed as
+  // Immediate Crisis, otherwise the sensitive-case handling is never applied.
+  const dominant = relevant.reduce((a, b) => (SEVERITY_RANK[b.severity] > SEVERITY_RANK[a.severity] ? b : a));
+  const category = dominant.category;
+  const categoryBn = dominant.categoryBn;
   const factors = Array.from(new Set(relevant.flatMap((rule) => rule.factors)));
+  if (crisisContext && !factors.includes("Immediate Physical Safety Risk")) {
+    factors.push("Immediate Physical Safety Risk");
+  }
   const legalBasis = Array.from(new Set(relevant.flatMap((rule) => rule.legalBasis)));
   const caseReference = relevant.find((rule) => rule.caseReference)?.caseReference ?? null;
 
@@ -407,4 +507,25 @@ When a caller describes a personal matter matching a non-standard severity tag, 
 
 export function getSeverityFactorsMeaning(): Record<string, string> {
   return { ...FACTOR_DEFINITIONS };
+}
+
+/**
+ * The urgency/priority vocabulary stored on an application.
+ *
+ * These live beside the classifier rather than in the route because a backfill has
+ * to reproduce them exactly. `urgency` deliberately keeps `emergency_danger` as a
+ * distinct value: flattening it to `urgent` would lose the difference between "in
+ * immediate danger" and "needs attention soon", which is the distinction the DLAO
+ * triages on.
+ */
+export function urgencyForSeverity(severity: SeverityLevel): string {
+  if (severity === "emergency") return "emergency_danger";
+  if (severity === "high" || severity === "priority") return "urgent";
+  return "normal";
+}
+
+export function priorityForSeverity(severity: SeverityLevel): string {
+  if (severity === "emergency") return "urgent";
+  if (severity === "standard") return "normal";
+  return "high";
 }

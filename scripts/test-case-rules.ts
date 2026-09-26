@@ -39,10 +39,18 @@ import {
   canActionMisconduct,
   canApprovePanelChanges,
   canProposePanelChanges,
+  canSeeSensitiveCases,
   chiefVariant,
   isDistrictOfficeRole,
   whichScreen,
 } from "../lib/auth/screen-guard";
+import {
+  classifySeverity,
+  IMMEDIATE_CRISIS_CATEGORY,
+  isSensitiveClassification,
+  tagForSelection,
+} from "../lib/agent/knowledge/severity-classification";
+import { PROBLEM_CATEGORIES } from "../lib/legal/problem-taxonomy";
 import {
   assistVerdict,
   createAuditEntry,
@@ -348,6 +356,61 @@ console.log("audit + assist");
 }
 
 console.log("");
+console.log("severity screening — spec Category A must not file as a general inquiry");
+{
+  // The exact text of the case that was misfiled as "General Inquiry": the stored
+  // problem statement is the category-derived Bangla question, so the wording is a
+  // fixed string and the taxonomy selection is the honest signal.
+  const onlineSexual = "সাইবার নিরাপত্তা ও অনলাইন অপরাধ: অনলাইনে আমাকে যৌনভাবে হয়রানি করা হচ্ছে বা অশ্লীল বার্তা/ছবি পাঠানো হচ্ছে?";
+  const a = classifySeverity(onlineSexual, { categoryId: "cyber", subcategoryId: "y1" });
+  check("online sexual harassment is an emergency", a.severity === "emergency", a.severity);
+  check("online sexual harassment is Category A", a.category === IMMEDIATE_CRISIS_CATEGORY, a.category);
+  check("online sexual harassment is sensitive", isSensitiveClassification(a));
+  check("Category A is filed under the Nari O Shishu Act", a.legalBasis.some((b) => /Nari O Shishu/.test(b)), a.legalBasis.join(", "));
+
+  // The stored statement is composed by the route as "<category>: <sub-category>",
+  // so each sub-category is screened against its own real text. Reusing one
+  // statement for every id would test nothing: a sexual-harassment sentence
+  // mentioning "অশ্লীল" should escalate whichever id it arrives with.
+  const cyber = PROBLEM_CATEGORIES.find((c) => c.id === "cyber")!;
+  const statementFor = (subId: string) => {
+    const sub = cyber.subcategories.find((x) => x.id === subId)!;
+    return `${cyber.bn}: ${sub.bn}`;
+  };
+
+  // Cyber bullying, defamation, blackmail and fraud are Category D. Escalating the
+  // whole category would make the sensitive filter meaningless.
+  for (const sub of ["y2", "y3", "y5", "y8"]) {
+    const d = classifySeverity(statementFor(sub), { categoryId: "cyber", subcategoryId: sub });
+    check(`cyber ${sub} stays Category D`, d.category === "Labor, Cyber & Specialized Rights" && d.severity === "high", `${d.severity}/${d.category}`);
+    check(`cyber ${sub} is not sensitive`, !isSensitiveClassification(d));
+  }
+  // Sexual content and a minor online are Category A regardless of the platform.
+  for (const sub of ["y1", "y4", "y10"]) {
+    const c = classifySeverity(statementFor(sub), { categoryId: "cyber", subcategoryId: sub });
+    check(`cyber ${sub} escalates to Category A`, isSensitiveClassification(c), `${c.severity}/${c.category}`);
+  }
+
+  check("the sub-category escape hatch carries no spec tag", tagForSelection("cyber", "other") === null);
+  check("an unrelated question stays a general inquiry",
+    classifySeverity("আপনি কি বলতে পারবেন জমির দলিল কিভাবে হয়").category === "General Inquiry");
+  check("a kinship query is not auto-escalated",
+    classifySeverity("ধর্ষণ আইনটা কি আছে").severity === "standard");
+}
+
+console.log("");
+console.log("sensitive-case visibility — DLAO and Chief DLAO only");
+{
+  check("DLAO can see sensitive cases", canSeeSensitiveCases("dlao"));
+  check("Chief DLAO can see sensitive cases", canSeeSensitiveCases("chief"));
+  for (const role of ["mediator", "panel", "chairman", "admin", "ngo", "mobile_agent", "udc", "referral", "judge", "callcentre", "udc_entrepreneur", "panel_lawyer"]) {
+    check(`${role} cannot see sensitive cases`, !canSeeSensitiveCases(role));
+  }
+  check("no session cannot see sensitive cases", !canSeeSensitiveCases(null));
+  check("cdlao resolves to the Chief role", canonicalRole("cdlao") === "chief", String(canonicalRole("cdlao")));
+  check("cdlao can therefore see sensitive cases", canSeeSensitiveCases(canonicalRole("cdlao")));
+}
+
 if (failures.length) {
   console.log(`${failures.length} FAILED of ${pass + failures.length}`);
   for (const f of failures) console.log("  - " + f);

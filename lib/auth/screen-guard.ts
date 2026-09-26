@@ -150,3 +150,26 @@ export function canProposePanelChanges(role: string | null | undefined): boolean
 export function canActionMisconduct(role: string | null | undefined): boolean {
   return role === "chairman";
 }
+
+/**
+ * Sensitive-case visibility.
+ *
+ * The severity spec puts Category A ("Immediate Crisis & Safety") cases outside
+ * the standard workflow, and the case notes require "role-restricted access" for
+ * material like rapidly spreading intimate images. So a case classified as
+ * emergency/sensitive is visible to the DLAO and the Chief DLAO only — the Chief
+ * because they supervise DLAOs and must be able to see what is escalating, and
+ * nobody else, including the mediator, panel lawyer, partner roles and admins.
+ *
+ * This lives here rather than inside a screen so the rule cannot be re-derived
+ * (or quietly omitted) per dashboard. It is a *visibility* filter, not a screen
+ * guard: the console still opens, the restricted rows are simply not listed.
+ */
+export const SENSITIVE_CASE_ROLES: readonly AppRole[] = ["dlao", "chief"];
+
+export function canSeeSensitiveCases(role: string | null | undefined): boolean {
+  if (!role) return false;
+  // `chairman` is a separate console, and `admin` is system administration, so
+  // neither inherits the Chief DLAO's case visibility.
+  return SENSITIVE_CASE_ROLES.includes(role as AppRole);
+}

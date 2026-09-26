@@ -81,7 +81,9 @@ export const ROLE_DEFINITIONS: RoleDefinition[] = [
     scopeBn: "একটি জেলা — সালিশ অনুমোদন, পরিশোধ, লিগ্যাল এইড অফিসার তদারকি",
     scopeEn: "One district — certifies settlements, approves payments, supervises DLAOs",
     group: "district",
-    legacyKeys: ["chief_legal_aid_officer"],
+    // "cdlao" is the abbreviation officers actually use for the Chief DLAO, and it
+    // is what staff type when they mean this role.
+    legacyKeys: ["chief_legal_aid_officer", "cdlao"],
   },
   {
     key: "chairman",

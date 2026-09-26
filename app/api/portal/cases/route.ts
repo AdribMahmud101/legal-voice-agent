@@ -3,9 +3,19 @@ import { getCloudflareContext } from "@opennextjs/cloudflare";
 import { getD1SessionUser, type D1Database } from "@/lib/auth/d1-session";
 import { getLocalSessionUser } from "@/lib/auth/local-session";
 import { mapPortalCase, type PortalCaseRow } from "@/lib/data/case-projection";
+import { isSensitiveClassification } from "@/lib/agent/knowledge/severity-classification";
+import { canSeeSensitiveCases } from "@/lib/auth/screen-guard";
 import type { SessionUser } from "@/lib/auth/roles";
 
 export const runtime = "nodejs";
+
+/** Reuses the classifier's own definition so the filter and the screen agree. */
+function isSensitiveRow(row: PortalCaseRow): boolean {
+  return isSensitiveClassification({
+    severity: (row.severity_level ?? "standard") as never,
+    category: row.severity_category ?? "",
+  });
+}
 
 function getToken(request: Request): string | undefined {
   return request.headers
@@ -66,7 +76,15 @@ export async function GET(request: Request) {
       results = (await db.prepare(`${baseQuery} ORDER BY c.created_at DESC`).all<PortalCaseRow>()).results;
     }
 
-    return NextResponse.json({ ok: true, cases: results.map(mapPortalCase) });
+    // A case screened as emergency/sensitive (Category A of the severity spec) is
+    // restricted to the DLAO and the Chief DLAO. Applied after the role scoping
+    // above, and never to a citizen's own case: the applicant must always be able
+    // to see the application they filed.
+    const visible = canSeeSensitiveCases(user.role)
+      ? results
+      : results.filter((row) => !isSensitiveRow(row));
+
+    return NextResponse.json({ ok: true, cases: visible.map(mapPortalCase) });
   } catch (err: unknown) {
     const message = err instanceof Error ? err.message : String(err);
     return NextResponse.json({ ok: false, error: message }, { status: 500 });

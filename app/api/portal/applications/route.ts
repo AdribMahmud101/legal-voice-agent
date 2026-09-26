@@ -3,7 +3,11 @@ import { getCloudflareContext } from "@opennextjs/cloudflare";
 import type { D1Database } from "@/lib/auth/d1-session";
 import { validateBangladeshPhone } from "@/lib/phone/bangladesh-phone";
 import { interpretSemanticBridge } from "@/lib/agent/semantic-bridge/match-lexicon";
-import { classifySeverity } from "@/lib/agent/knowledge/severity-classification";
+import {
+  classifySeverity,
+  priorityForSeverity,
+  urgencyForSeverity,
+} from "@/lib/agent/knowledge/severity-classification";
 import { inferLegalCategory } from "@/lib/legal/category";
 import { extractDistrict } from "@/lib/legal/districts";
 import {
@@ -57,11 +61,6 @@ function normalizeLanguage(input: unknown): IntakeLanguage {
  * run it server-side instead of trusting the browser. That keeps an urgency that a
  * DLAO triages on from being something a client can simply assert.
  */
-function urgencyFor(severity: string): string {
-  if (severity === "emergency") return "emergency_danger";
-  if (severity === "high" || severity === "priority") return "urgent";
-  return "normal";
-}
 
 export async function POST(request: Request) {
   const db = getDatabase();
@@ -193,7 +192,13 @@ export async function POST(request: Request) {
   const category = chosenCategory
     ? chosenCategory.id
     : inferLegalCategory(semanticNormalizedBangla || problem);
-  const severity = classifySeverity(problem);
+  const severity = classifySeverity(problem, {
+    categoryId,
+    // The per-category "other" escape hatch is a real choice but carries no spec
+    // meaning of its own, so tagForSelection returns null and the caller's own
+    // words decide the severity.
+    subcategoryId,
+  });
   const voicePin = generateVoicePin();
   const pinHash = await sha256Hex(voicePin);
 
@@ -276,12 +281,8 @@ export async function POST(request: Request) {
             semanticIntent,
             semanticNormalizedBangla,
             semanticNormalizedBangla || problem,
-            urgencyFor(severity.severity),
-            severity.severity === "emergency"
-              ? "urgent"
-              : severity.severity === "standard"
-                ? "normal"
-                : "high",
+            urgencyForSeverity(severity.severity),
+            priorityForSeverity(severity.severity),
             severity.severity,
             severity.category,
             JSON.stringify(severity.factors),
