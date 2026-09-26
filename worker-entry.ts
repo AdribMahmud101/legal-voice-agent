@@ -1362,6 +1362,38 @@ export default {
     if (url.pathname === "/api/citizens") {
       return handleCitizensRequest(request, env);
     }
-    return nextWorker.fetch(request, env, ctx);
+    return withEdgeCachePolicy(nextWorker.fetch(request, env, ctx));
   },
 };
+
+/**
+ * Stops the edge caching our HTML for a year.
+ *
+ * Next serves pages with `cache-control: s-maxage=31536000`, which tells Cloudflare it
+ * may hold a page at the edge for a year. The result was that a freshly deployed build
+ * was not what people saw: the roster, the AI Suggestion Center and the consultation
+ * fixes were all live and verifiably in the served bundle, while a cached document kept
+ * serving the previous deploy.
+ *
+ * Immutable, content-hashed `/_next/static/*` files are still cached hard — that is
+ * correct and is what makes the reload cheap. Everything else, HTML and API alike, is
+ * revalidated on every request. This matters for a portal above all, where a stale
+ * document can show an officer a case list that no longer matches the database.
+ */
+function withEdgeCachePolicy(response: Response | Promise<Response>): Promise<Response> {
+  return Promise.resolve(response).then((res) => {
+    const url = res.headers.get("content-type") ?? "";
+    const isImmutableAsset = res.headers.has("etag") && (url.includes("javascript") || url.includes("css"));
+    if (isImmutableAsset) return res;
+
+    // Only downgrade what is actually cacheable. Dropping a `no-store` an API route set
+    // deliberately would be worse than the problem.
+    const current = res.headers.get("cache-control") ?? "";
+    if (/no-store|private/.test(current)) return res;
+
+    const headers = new Headers(res.headers);
+    headers.set("cache-control", "no-cache, must-revalidate");
+    headers.set("cdn-cache-control", "no-store");
+    return new Response(res.body, { status: res.status, statusText: res.statusText, headers });
+  });
+}
