@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { DlaoShell, type DlaoTab } from "@/lib/ui/shell/DlaoShell";
-import DlaoLawyerAssignment from "@/components/dlao-lawyer-assignment";
+import DlaoAssignmentWorkbench from "@/components/dlao-assignment-workbench";
 import type { PortalCase } from "@/lib/data/case-projection";
 
 const SLA_DAYS = 65;
@@ -83,11 +83,11 @@ export default function DlaoDashboard() {
   return (
     <DlaoShell activeTab={activeTab} onTabChange={setActiveTab} tabCounts={{ new: pendingCount, cases: caseCount, panel: panelCount }}>
       <h1 className="dlao-page-heading">
-        {activeTab === "lawyers" ? "আইনজীবী খুঁজুন ও নিয়োগ দিন" : "আবেদন"}
+        {activeTab === "lawyers" ? "এইচ পরামর্শ কেন্দ্র" : "আবেদন"}
       </h1>
 
       {activeTab === "lawyers" ? (
-        <DlaoLawyerAssignment cases={cases} onAssigned={reload} />
+        <DlaoAssignmentWorkbench cases={cases} onAssigned={reload} />
       ) : null}
 
       {activeTab === "lawyers" ? null : (

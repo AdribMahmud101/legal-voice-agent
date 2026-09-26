@@ -14,6 +14,8 @@ import { getD1SessionUser, type D1Database } from "@/lib/auth/d1-session";
 import { getLocalSessionUser } from "@/lib/auth/local-session";
 import { isDistrictOfficeRole } from "@/lib/auth/screen-guard";
 import { filterLawyers, rankLawyers, type LawyerSummary } from "@/lib/case/lawyer-assignment";
+import { recommendLawyers, summariseRecommendation } from "@/lib/case/lawyer-recommendation";
+import { getProblemCategory } from "@/lib/legal/problem-taxonomy";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -85,8 +87,38 @@ export async function GET(request: Request) {
       assignable: r.list_status === "on_panel",
     }));
 
-    const q = new URL(request.url).searchParams.get("q") ?? "";
-    return NextResponse.json({ ok: true, lawyers: rankLawyers(filterLawyers(lawyers, q)), query: q });
+    const url = new URL(request.url);
+    const q = url.searchParams.get("q") ?? "";
+    const caseId = url.searchParams.get("caseId");
+
+    // With a case in hand, also return a ranked recommendation and the reasons for it,
+    // so the console can lead with a reasoned suggestion rather than a bare list.
+    let recommendation = null;
+    if (caseId) {
+      const target = await db
+        .prepare(`SELECT id, category, problem_category, district FROM cases WHERE id = ?`)
+        .bind(caseId)
+        .first<{ id: string; category: string | null; problem_category: string | null; district: string | null }>();
+      if (target) {
+        const categoryId = target.problem_category ?? target.category;
+        const ranked = recommendLawyers(
+          { categoryId, district: target.district },
+          rankLawyers(lawyers),
+        );
+        recommendation = {
+          caseId: target.id,
+          categoryId,
+          categoryBn: getProblemCategory(categoryId)?.bn ?? null,
+          headlineBn: summariseRecommendation(
+            { categoryId, categoryBn: getProblemCategory(categoryId)?.bn ?? null },
+            ranked,
+          ),
+          items: ranked,
+        };
+      }
+    }
+
+    return NextResponse.json({ ok: true, lawyers: rankLawyers(filterLawyers(lawyers, q)), query: q, recommendation });
   } catch (err: unknown) {
     const message = err instanceof Error ? err.message : String(err);
     return NextResponse.json({ ok: false, error: message }, { status: 500 });

@@ -5,6 +5,7 @@ import Link from "next/link";
 import { DlaoShell } from "@/lib/ui/shell/DlaoShell";
 import { Card, CardContent } from "@/lib/ui/components/Card";
 import { StatusBadge } from "@/lib/ui/components/StatusBadge";
+import { RiskBadgeRow } from "@/components/risk-badges";
 import { Button } from "@/lib/ui/components/Button";
 import { MOCK_ROLE_IDENTITIES } from "@/lib/auth/roles";
 import { getStatusVariant, getStatusLabel } from "@/lib/data/case-store";
@@ -185,19 +186,29 @@ export default function DlaoCaseDetail({ params }: { params: Promise<{ id: strin
                     <p style={{ fontFamily: "var(--font-bn)", fontSize: "0.875rem", color: "var(--portal-text-secondary)" }}>আবেদনের সারসংক্ষেপ</p>
                     <p style={{ fontFamily: "var(--font-bn)", fontSize: "1rem", lineHeight: 1.6 }}>{caseData.intakeSummary || caseData.problemStatement}</p>
                   </div>
+                  {/* Was three rows of small bold text in a two-column grid, which made
+                      the most important fact on the case look the same as the district.
+                      Badges lead, so triage is readable at a glance. */}
+                  <div style={{ marginBottom: "var(--space-md)" }}>
+                    <RiskBadgeRow
+                      urgency={caseData.urgency}
+                      priority={caseData.priority}
+                      severity={caseData.severityLevel}
+                    />
+                  </div>
                   <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "var(--space-md)" }}>
-                    <div>
-                      <p style={{ fontFamily: "var(--font-bn)", fontSize: "0.875rem", color: "var(--portal-text-secondary)" }}>জরুরি অবস্থা</p>
-                      <p style={{ fontFamily: "var(--font-bn)", fontSize: "1rem", fontWeight: 700 }}>{getUrgencyLabel(caseData.urgency)}</p>
-                    </div>
-                    <div>
-                      <p style={{ fontFamily: "var(--font-bn)", fontSize: "0.875rem", color: "var(--portal-text-secondary)" }}>অগ্রাধিকার</p>
-                      <p style={{ fontFamily: "var(--font-bn)", fontSize: "1rem", fontWeight: 700 }}>{getPriorityLabel(caseData.priority)}</p>
-                    </div>
-                    <div>
-                      <p style={{ fontFamily: "var(--font-bn)", fontSize: "0.875rem", color: "var(--portal-text-secondary)" }}>তীব্রতা</p>
-                      <p style={{ fontFamily: "var(--font-bn)", fontSize: "1rem", fontWeight: 600 }}>{getSeverityLabel(caseData.severityLevel)}</p>
-                    </div>
+                    {caseData.severityCategory ? (
+                      <div style={{ gridColumn: "1 / -1" }}>
+                        <p style={{ fontFamily: "var(--font-bn)", fontSize: "0.875rem", color: "var(--portal-text-secondary)" }}>স্ক্রিনিং বিভাগ</p>
+                        <p style={{ fontFamily: "var(--font-bn)", fontSize: "1rem", fontWeight: 600 }}>{caseData.severityCategory}</p>
+                      </div>
+                    ) : null}
+                    {Array.isArray(caseData.severityFactors) && caseData.severityFactors.length ? (
+                      <div style={{ gridColumn: "1 / -1" }}>
+                        <p style={{ fontFamily: "var(--font-bn)", fontSize: "0.875rem", color: "var(--portal-text-secondary)" }}>ঝুঁকির কারণ</p>
+                        <p style={{ fontFamily: "var(--font-bn)", fontSize: "1rem", fontWeight: 600 }}>{caseData.severityFactors.join(", ")}</p>
+                      </div>
+                    ) : null}
                     <div>
                       <p style={{ fontFamily: "var(--font-bn)", fontSize: "0.875rem", color: "var(--portal-text-secondary)" }}>বিভাগ</p>
                       <p style={{ fontFamily: "var(--font-bn)", fontSize: "1rem", fontWeight: 600 }}>{caseData.severityCategory || "নির্ধারিত হয়নি"}</p>

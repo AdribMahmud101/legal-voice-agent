@@ -58,6 +58,7 @@ import {
 } from "../lib/case/legal-aid-eligibility";
 import { buildConsultationScript, toBanglaDigits } from "../lib/case/consultation-script";
 import { filterLawyers, rankLawyers, type LawyerSummary } from "../lib/case/lawyer-assignment";
+import { recommendLawyers, summariseRecommendation } from "../lib/case/lawyer-recommendation";
 import {
   actionsForTrack,
   deadlineFrom,
@@ -625,6 +626,47 @@ console.log("lawyer assignment — a DLAO can choose, and the choice is exclusiv
   check("an empty query returns everything", filterLawyers(roster, "   ").length === 3);
   check("a query matching nothing returns nothing", filterLawyers(roster, "zzz").length === 0);
   check("search does not mutate the roster", roster[0].id === "a" && roster.length === 3);
+}
+
+console.log("");
+console.log("lawyer recommendation — a specialist always leads, and every score is explainable");
+{
+  const base = { barRegistration: null, phone: null, email: null, kind: "lawyer" as const };
+  const roster: LawyerSummary[] = [
+    { ...base, id: "cyber", name: "সাইবার বিশেষজ্ঞ", specialisations: "সাইবার, ডিজিটাল নিরাপত্তা", jurisdiction: "ঢাকা", listStatus: "on_panel", activeAssignments: 4, overdueActions: 2, assignable: true },
+    { ...base, id: "land", name: "জমি বিশেষজ্ঞ", specialisations: "জমি, সম্পত্তি, ভূমি অপরাধ", jurisdiction: "সিলেট", listStatus: "on_panel", activeAssignments: 0, overdueActions: 0, assignable: true },
+    { ...base, id: "idle", name: "সাধারণ আইনজীবী", specialisations: "দাঁড়িগল্লা বিষয়", jurisdiction: "চট্টগ্রাম", listStatus: "on_panel", activeAssignments: 0, overdueActions: 0, assignable: true },
+    { ...base, id: "off", name: "তালিকাবহির্ভুত", specialisations: "সাইবার", jurisdiction: "ঢাকা", listStatus: "removed", activeAssignments: 0, overdueActions: 0, assignable: false },
+  ];
+
+  // A busy specialist must still beat an idle generalist: load may only lower a
+  // ranking, never let an unmatched lawyer overtake a matched one.
+  const rec = recommendLawyers({ categoryId: "cyber", district: "ঢাকা" }, roster);
+  check("a specialist leads even when heavily loaded", rec[0].lawyer.id === "cyber", rec[0].lawyer.id);
+  check("an off-panel lawyer is never recommended", !rec.some((r) => r.lawyer.id === "off"));
+  check("the leader is flagged as a specialist", rec[0].specialist === true);
+  check("jurisdiction match is a reason", rec[0].reasons.some((r) => r.code === "jurisdiction"));
+  check("overdue steps are a negative reason", rec[0].reasons.some((r) => r.weight < 0), JSON.stringify(rec[0].reasons.map((r) => r.weight)));
+  check("scores stay within 0-100", rec.every((r) => r.score >= 0 && r.score <= 100), rec.map((r) => r.score).join());
+  check("the recommendation is capped", rec.length <= 3);
+
+  const same = recommendLawyers({ categoryId: "cyber", district: "ঢাকা" }, roster);
+  check("recommending twice is identical", JSON.stringify(rec) === JSON.stringify(same));
+
+  const landRec = recommendLawyers({ categoryId: "agri_land", district: "সিলেট" }, roster);
+  check("a land case recommends the land lawyer", landRec[0].lawyer.id === "land", landRec[0].lawyer.id);
+
+  // With no specialisation match anywhere, the ranking falls back to capacity and
+  // record, and says so rather than pretending there was a match.
+  const general = recommendLawyers({ categoryId: "not_a_category", district: null }, roster);
+  check("an unmatched case says so plainly", !general[0].specialist);
+  const summary = summariseRecommendation({ categoryId: "not_a_category", categoryBn: "সাধারণ" }, general);
+  check("the summary admits there is no specialisation", /কোনো আইনজীবীর সরাসরি বিশেষায়ন নেই/.test(summary), summary);
+  check("the summary names the recommended lawyer", summary.includes(general[0].lawyer.name), summary);
+
+  const empty = summariseRecommendation({ categoryId: "cyber", categoryBn: "সাইবার" }, []);
+  check("an empty roster is stated plainly", /নিয়োগযোগ্য কোনো আইনজীবী নেই/.test(empty), empty);
+  check("no internal code leaks into the summary", !empty.includes("specialisation") && !empty.includes("score"));
 }
 
 if (failures.length) {
