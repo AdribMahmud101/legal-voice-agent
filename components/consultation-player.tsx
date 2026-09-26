@@ -109,6 +109,9 @@ export default function ConsultationPlayer({
   // function every render: the effect tore down its own timer chain and began again
   // from turn 1, which looked like a message loop at the end.
   const onFinishedRef = useRef(onFinished);
+  // startFromSeq is only for initial mount — must not trigger replays when the parent
+  // updates lastSeq via onProgress. Storing in a ref prevents the effect restart loop.
+  const startFromSeqRef = useRef(startFromSeq);
   useEffect(() => {
     onFinishedRef.current = onFinished;
   }, [onFinished]);
@@ -142,7 +145,10 @@ export default function ConsultationPlayer({
     let cancelled = false;
     const timers: ReturnType<typeof setTimeout>[] = [];
     // Resume where the applicant left off rather than replaying from turn 1.
-    let index = Math.max(0, turns.findIndex((t) => t.seq > startFromSeq));
+    // Uses the ref so that onProgress -> setLastSeq in the parent does not
+    // restart this effect and cause an infinite playback loop.
+    const resumeFrom = startFromSeqRef.current;
+    let index = Math.max(0, turns.findIndex((t) => t.seq > resumeFrom));
     if (index === -1) index = turns.length;
     if (index >= turns.length) {
       setPlaying(false);
@@ -191,8 +197,8 @@ export default function ConsultationPlayer({
       cancelled = true;
       timers.forEach(clearTimeout);
     };
-    // onFinished is deliberately absent: it is read through the ref above.
-  }, [autoStart, runId, turns, startFromSeq]);
+    // startFromSeq is read from ref, not deps — updating it must not restart playback.
+  }, [autoStart, runId, turns]);
 
   /** Jump straight to the verdict: reveal every remaining turn at once. */
   const skipToEnd = useCallback(() => {
