@@ -57,3 +57,10 @@ Landing Pgae/
 # Design scratch: standalone reference mockups, not app source
 demo page/
 reference ui/
+
+# Generated at build time by scripts/write-build-info.mjs.
+#
+# It was committed, which made it self-invalidating: writing the stamp is itself a
+# commit, so the served stamp always trailed HEAD by exactly one no-op commit and read
+# as deployment drift. The file is build output, not source.
+lib/build-info.ts
