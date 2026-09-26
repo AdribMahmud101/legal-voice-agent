@@ -162,6 +162,61 @@ export async function GET(request: Request) {
     .prepare("SELECT COUNT(*) AS n FROM misconduct_cases WHERE verdict = 'open'")
     .first<{ n: number }>();
 
+  // Panel lawyers list
+  const panelLawyers = await db
+    .prepare(
+      `SELECT pl.id, pl.user_id AS userId, pl.bar_council_id AS barId, pl.specialization,
+              pl.district, pl.status, pl.approved_at AS approvedAt,
+              u.display_name AS name, u.phone
+         FROM panel_lawyers pl
+         LEFT JOIN users u ON u.id = pl.user_id
+        ORDER BY pl.approved_at DESC
+        LIMIT 100`,
+    )
+    .all<Record<string, unknown>>();
+
+  // All cases for supervision
+  const casesResult = await db
+    .prepare(
+      `SELECT c.id, c.docket_id AS ref, c.status, c.stage, c.problem, c.district,
+              c.applicant_name AS applicantName, c.phone, c.priority, c.severity,
+              c.legal_category AS category, c.created_at AS createdAt,
+              (SELECT COUNT(*) FROM mediations m WHERE m.case_id = c.id) AS mediationCount
+         FROM cases c
+        WHERE c.is_mock = 0 OR c.is_mock IS NULL
+        ORDER BY c.created_at DESC
+        LIMIT 200`,
+    )
+    .all<Record<string, unknown>>();
+
+  // Get distinct districts for filter options
+  const districtsResult = await db
+    .prepare(`SELECT DISTINCT district FROM cases WHERE district IS NOT NULL AND district != '' ORDER BY district`)
+    .all<{ district: string }>();
+
+  // Emergency cases analytics - last 28 days
+  const analyticsStart = new Date(Date.now() - 28 * 86_400_000).toISOString().slice(0, 10);
+  const emergencyAnalytics = await db
+    .prepare(
+      `SELECT DATE(created_at) AS day, COUNT(*) AS count
+         FROM cases
+        WHERE severity = 'emergency'
+          AND DATE(created_at) >= ?
+        GROUP BY DATE(created_at)
+        ORDER BY day ASC`,
+    )
+    .bind(analyticsStart)
+    .all<{ day: string; count: number }>();
+
+  // Build a complete 28-day series with zeros for missing days
+  const emergencyByDay: { day: string; count: number }[] = [];
+  for (let i = 27; i >= 0; i--) {
+    const d = new Date(Date.now() - i * 86_400_000);
+    const dayStr = d.toISOString().slice(0, 10);
+    const match = (emergencyAnalytics.results ?? []).find((r) => r.day === dayStr);
+    emergencyByDay.push({ day: dayStr, count: match?.count ?? 0 });
+  }
+
   // Audit trail - last 7 days
   const since = new Date(Date.now() - 7 * 86_400_000).toISOString();
   const [auditEntries, auditCountsData] = await Promise.all([
@@ -190,6 +245,10 @@ export async function GET(request: Request) {
     certifications,
     payments: pendingPayments,
     officers: officers.results ?? [],
+    panelLawyers: panelLawyers.results ?? [],
+    cases: casesResult.results ?? [],
+    districts: (districtsResult.results ?? []).map((r) => r.district),
+    emergencyByDay,
     audit: {
       entries: auditEntries,
       counts: auditCountsData,

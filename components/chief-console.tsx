@@ -53,6 +53,34 @@ type Officer = {
   openCases: number;
 };
 
+type PanelLawyer = {
+  id: string;
+  userId: string | null;
+  barId: string | null;
+  name: string | null;
+  phone: string | null;
+  specialization: string | null;
+  district: string | null;
+  status: string | null;
+  approvedAt: string | null;
+};
+
+type Case = {
+  id: string;
+  ref: string | null;
+  status: string | null;
+  stage: string | null;
+  problem: string | null;
+  district: string | null;
+  applicantName: string | null;
+  phone: string | null;
+  priority: string | null;
+  severity: string | null;
+  category: string | null;
+  createdAt: string | null;
+  mediationCount: number;
+};
+
 type AuditEntry = {
   id: string;
   kind: string;
@@ -86,6 +114,10 @@ type ChiefData = {
   certifications: Certification[];
   payments: Payment[];
   officers: Officer[];
+  panelLawyers: PanelLawyer[];
+  cases: Case[];
+  districts: string[];
+  emergencyByDay: { day: string; count: number }[];
   audit: {
     entries: AuditEntry[];
     counts: Record<string, number>;
@@ -95,9 +127,11 @@ type ChiefData = {
 
 const TABS = [
   { id: "overview", label: "সারসংক্ষেপ" },
+  { id: "cases", label: "সব মামলা" },
   { id: "certify", label: "প্রত্যায়ন" },
   { id: "payments", label: "পেমেন্ট অনুমোদন" },
   { id: "panel", label: "প্যানেল তালিকা" },
+  { id: "officers", label: "অফিসার" },
   { id: "misconduct", label: "অসদাচরণ" },
   { id: "audit", label: "অডিট ট্রেইল" },
 ] as const;
@@ -146,6 +180,12 @@ export default function ChiefConsole() {
   const [reasons, setReasons] = useState<Record<string, string>>({});
   const [selectedAudit, setSelectedAudit] = useState<AuditEntry | null>(null);
   const [loggingOut, setLoggingOut] = useState(false);
+  const [caseFilters, setCaseFilters] = useState({
+    district: "",
+    stage: "",
+    severity: "",
+    search: "",
+  });
 
   const load = useCallback(async () => {
     const res = await fetch("/api/chief", { cache: "no-store" });
@@ -293,55 +333,222 @@ export default function ChiefConsole() {
       </nav>
 
       {tab === "overview" && (
-        <section className="mt-5">
-          <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+        <section className="mt-6">
+          {/* Modern KPI Cards */}
+          <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
             <Kpi
+              icon="📋"
               label="অপেক্ষমাণ প্রত্যায়ন"
               value={data.kpis.pendingCertifications}
               sub={`${data.kpis.certificationsBlocked} টি অসম্পূর্ণ স্বাক্ষর`}
+              color="blue"
             />
-            <Kpi label="প্যানেল আইনজীবী" value={data.kpis.panelLawyers} sub="মাস্টার তালিকা" />
             <Kpi
+              icon="⚖️"
+              label="প্যানেল আইনজীবী"
+              value={data.kpis.panelLawyers}
+              sub="মাস্টার তালিকা"
+              color="emerald"
+            />
+            <Kpi
+              icon="✅"
               label="এই মাসে নিষ্পত্তি"
               value={data.kpis.casesHandled}
               sub="সব অফিসার মিলিয়ে"
+              color="violet"
             />
             <Kpi
+              icon="⚠️"
               label="অসদাচরণ তদন্ত"
               value={data.kpis.openMisconduct}
               sub={data.permissions.actionMisconduct ? "কমিটি আধিপত্যায়ী" : "শুধু কমিটি"}
+              color="amber"
             />
           </div>
 
-          <h2 className="mt-6 text-sm font-semibold">অফিসার কার্যক্রম</h2>
-          <p className="text-xs text-slate-500">
-            এই সারসংক্ষেপ শুধুমাত্র পরিদর্শনের জন্য। এখান থেকে কোনো মামলার তথ্য পরিবর্তন করা যায় না।
-          </p>
-          <table className="mt-2 w-full text-sm">
-            <thead>
-              <tr className="border-b border-slate-200 text-left text-xs text-slate-500">
-                <th className="py-2">অফিসার</th>
-                <th className="py-2">নিষ্পত্তি</th>
-                <th className="py-2">চলমান</th>
-              </tr>
-            </thead>
-            <tbody>
-              {data.officers.length === 0 && (
-                <tr>
-                  <td colSpan={3} className="py-4 text-slate-500">
-                    কোনো সক্রিয় অফিসার নেই।
-                  </td>
-                </tr>
-              )}
-              {data.officers.map((o) => (
-                <tr key={o.id} className="border-b border-slate-100">
-                  <td className="py-2">{o.name}</td>
-                  <td className="py-2">{o.handled}</td>
-                  <td className="py-2">{o.openCases}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
+          {/* Quick Stats Row */}
+          <div className="mt-6 grid gap-4 sm:grid-cols-3">
+            <div className="flex items-center gap-4 rounded-xl border border-slate-200 bg-gradient-to-br from-white to-slate-50 p-4">
+              <div className="flex h-12 w-12 items-center justify-center rounded-full bg-blue-100 text-xl">
+                💰
+              </div>
+              <div>
+                <p className="text-2xl font-bold text-slate-800">{data.kpis.pendingPayments}</p>
+                <p className="text-xs text-slate-500">পেমেন্ট অপেক্ষমাণ</p>
+              </div>
+            </div>
+            <div className="flex items-center gap-4 rounded-xl border border-slate-200 bg-gradient-to-br from-white to-slate-50 p-4">
+              <div className="flex h-12 w-12 items-center justify-center rounded-full bg-emerald-100 text-xl">
+                📊
+              </div>
+              <div>
+                <p className="text-2xl font-bold text-slate-800">{data.audit.totalLast7Days}</p>
+                <p className="text-xs text-slate-500">৭ দিনে কার্যক্রম</p>
+              </div>
+            </div>
+            <div className="flex items-center gap-4 rounded-xl border border-slate-200 bg-gradient-to-br from-white to-slate-50 p-4">
+              <div className="flex h-12 w-12 items-center justify-center rounded-full bg-violet-100 text-xl">
+                👥
+              </div>
+              <div>
+                <p className="text-2xl font-bold text-slate-800">{data.officers.length}</p>
+                <p className="text-xs text-slate-500">সক্রিয় অফিসার</p>
+              </div>
+            </div>
+          </div>
+
+          {/* Officer Activity Section */}
+          <div className="mt-6 rounded-xl border border-slate-200 bg-white shadow-sm">
+            <div className="border-b border-slate-100 px-5 py-4">
+              <div className="flex items-center justify-between">
+                <div>
+                  <h2 className="font-semibold text-slate-800">অফিসার কার্যক্রম</h2>
+                  <p className="text-xs text-slate-500">
+                    রিয়েল-টাইম পারফরম্যান্স ওভারভিউ
+                  </p>
+                </div>
+                <span className="rounded-full bg-slate-100 px-3 py-1 text-xs font-medium text-slate-600">
+                  শুধুমাত্র পরিদর্শন
+                </span>
+              </div>
+            </div>
+
+            {data.officers.length === 0 ? (
+              <div className="px-5 py-8 text-center">
+                <div className="mx-auto mb-3 flex h-12 w-12 items-center justify-center rounded-full bg-slate-100 text-xl">
+                  👤
+                </div>
+                <p className="text-sm text-slate-500">কোনো সক্রিয় অফিসার নেই</p>
+              </div>
+            ) : (
+              <div className="divide-y divide-slate-100">
+                {data.officers.map((o, idx) => (
+                  <div key={o.id} className="flex items-center gap-4 px-5 py-3 transition-colors hover:bg-slate-50">
+                    <div className="flex h-10 w-10 items-center justify-center rounded-full bg-gradient-to-br from-blue-500 to-blue-600 text-sm font-bold text-white">
+                      {o.name.charAt(0)}
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <p className="truncate font-medium text-slate-800">{o.name}</p>
+                      <p className="text-xs text-slate-500">{o.role || "লিগ্যাল এইড অফিসার"}</p>
+                    </div>
+                    <div className="flex items-center gap-6 text-right">
+                      <div>
+                        <p className="text-lg font-semibold text-emerald-600">{o.handled}</p>
+                        <p className="text-[10px] uppercase tracking-wide text-slate-400">নিষ্পত্তি</p>
+                      </div>
+                      <div>
+                        <p className="text-lg font-semibold text-blue-600">{o.openCases}</p>
+                        <p className="text-[10px] uppercase tracking-wide text-slate-400">চলমান</p>
+                      </div>
+                      {idx === 0 && (
+                        <span className="rounded-full bg-amber-100 px-2 py-0.5 text-[10px] font-bold text-amber-700">
+                          শীর্ষ
+                        </span>
+                      )}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+
+          {/* Recent Activity Preview */}
+          {data.audit.entries.length > 0 && (
+            <div className="mt-6 rounded-xl border border-slate-200 bg-white shadow-sm">
+              <div className="border-b border-slate-100 px-5 py-4">
+                <div className="flex items-center justify-between">
+                  <h2 className="font-semibold text-slate-800">সাম্প্রতিক কার্যক্রম</h2>
+                  <button
+                    onClick={() => setTab("audit")}
+                    className="text-xs font-medium text-blue-600 hover:text-blue-700"
+                  >
+                    সব দেখুন →
+                  </button>
+                </div>
+              </div>
+              <div className="divide-y divide-slate-100">
+                {data.audit.entries.slice(0, 5).map((entry) => (
+                  <div key={entry.id} className="flex items-center gap-3 px-5 py-3">
+                    <div className="flex h-8 w-8 items-center justify-center rounded-full bg-slate-100 text-sm">
+                      {entry.kind.includes("login") ? "🔐" :
+                       entry.kind.includes("case") ? "📁" :
+                       entry.kind.includes("payment") ? "💳" :
+                       entry.kind.includes("lawyer") ? "⚖️" : "📝"}
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <p className="truncate text-sm text-slate-700">
+                        {AUDIT_KIND_LABELS[entry.kind] ?? entry.kind}
+                      </p>
+                      <p className="truncate text-xs text-slate-400">
+                        {entry.actorName || entry.actorRole || "সিস্টেম"}
+                      </p>
+                    </div>
+                    <span className="text-xs text-slate-400">
+                      {new Date(entry.at).toLocaleTimeString("bn-BD", {
+                        hour: "2-digit",
+                        minute: "2-digit",
+                      })}
+                    </span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* Emergency Cases Analytics - 28 Days */}
+          <div className="mt-6 rounded-xl border border-slate-200 bg-white shadow-sm">
+            <div className="border-b border-slate-100 px-5 py-4">
+              <div className="flex items-center justify-between">
+                <div>
+                  <h2 className="font-semibold text-slate-800">জরুরি মামলার প্রবণতা</h2>
+                  <p className="text-xs text-slate-500">গত ২৮ দিন</p>
+                </div>
+                <span className="rounded-full bg-red-100 px-3 py-1 text-xs font-medium text-red-700">
+                  {data.emergencyByDay.reduce((sum, d) => sum + d.count, 0)} টি জরুরি
+                </span>
+              </div>
+            </div>
+            <div className="p-5">
+              {(() => {
+                const maxCount = Math.max(1, ...data.emergencyByDay.map((d) => d.count));
+                return (
+                  <div className="flex items-end justify-between gap-1" style={{ height: 120 }}>
+                    {data.emergencyByDay.map((d, idx) => {
+                      const height = (d.count / maxCount) * 100;
+                      const isToday = idx === data.emergencyByDay.length - 1;
+                      return (
+                        <div
+                          key={d.day}
+                          className="group relative flex-1"
+                          style={{ height: "100%" }}
+                        >
+                          <div
+                            className={`absolute bottom-0 w-full rounded-t transition-all ${
+                              d.count === 0
+                                ? "bg-slate-100"
+                                : isToday
+                                  ? "bg-gradient-to-t from-red-500 to-red-400"
+                                  : "bg-gradient-to-t from-red-300 to-red-200 group-hover:from-red-400 group-hover:to-red-300"
+                            }`}
+                            style={{ height: `${Math.max(4, height)}%` }}
+                          />
+                          {/* Tooltip */}
+                          <div className="pointer-events-none absolute -top-10 left-1/2 z-10 hidden -translate-x-1/2 whitespace-nowrap rounded bg-slate-800 px-2 py-1 text-xs text-white group-hover:block">
+                            {new Date(d.day).toLocaleDateString("bn-BD", { day: "numeric", month: "short" })}: {d.count}
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                );
+              })()}
+              {/* X-axis labels */}
+              <div className="mt-2 flex justify-between text-[10px] text-slate-400">
+                <span>{new Date(data.emergencyByDay[0]?.day).toLocaleDateString("bn-BD", { day: "numeric", month: "short" })}</span>
+                <span>আজ</span>
+              </div>
+            </div>
+          </div>
         </section>
       )}
 
@@ -434,18 +641,316 @@ export default function ChiefConsole() {
 
       {tab === "panel" && (
         <section className="mt-5">
-          <h2 className="text-sm font-semibold">প্যানেল তালিকা</h2>
-          <p className="mt-1 text-sm text-slate-600">
-            মাস্টার তালিকায় {data.kpis.panelLawyers} জন আইনজীবী আছেন।
-          </p>
-          <p className="mt-2 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-600">
-            {isChairman
-              ? "চেয়ারম্যান প্যানেল তালিকার পরিবর্তন অনুমোদন করেন।"
-              : "চীফ প্যানেল তালিকার পরিবর্তন প্রস্তাব করেন; অনুমোদন করেন জেলা কমিটির চেয়ারম্যান।"}
-          </p>
-          <p className="mt-3 text-xs text-slate-500">
-            পরিবর্তনের তালিকা এখানে নেই।
-          </p>
+          <div className="mb-4 flex items-center justify-between">
+            <div>
+              <h2 className="text-sm font-semibold">প্যানেল আইনজীবী</h2>
+              <p className="text-xs text-slate-500">
+                মাস্টার তালিকায় {data.kpis.panelLawyers} জন আইনজীবী আছেন
+              </p>
+            </div>
+            <span className="rounded-full bg-emerald-100 px-3 py-1 text-xs font-medium text-emerald-700">
+              {isChairman ? "অনুমোদনকারী" : "প্রস্তাবকারী"}
+            </span>
+          </div>
+
+          {data.panelLawyers.length === 0 ? (
+            <div className="rounded-xl border border-slate-200 bg-slate-50 p-8 text-center">
+              <div className="mx-auto mb-3 flex h-12 w-12 items-center justify-center rounded-full bg-slate-100 text-xl">
+                ⚖️
+              </div>
+              <p className="text-sm text-slate-500">প্যানেলে কোনো আইনজীবী নেই</p>
+            </div>
+          ) : (
+            <div className="overflow-hidden rounded-xl border border-slate-200">
+              <table className="w-full text-sm">
+                <thead className="bg-slate-50">
+                  <tr className="border-b border-slate-200 text-left text-xs font-medium text-slate-600">
+                    <th className="px-4 py-3">আইনজীবী</th>
+                    <th className="px-4 py-3">বার আইডি</th>
+                    <th className="px-4 py-3">বিশেষত্ব</th>
+                    <th className="px-4 py-3">জেলা</th>
+                    <th className="px-4 py-3">স্ট্যাটাস</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-100">
+                  {data.panelLawyers.map((lawyer) => (
+                    <tr key={lawyer.id} className="transition-colors hover:bg-slate-50">
+                      <td className="px-4 py-3">
+                        <div className="flex items-center gap-3">
+                          <div className="flex h-9 w-9 items-center justify-center rounded-full bg-gradient-to-br from-amber-500 to-amber-600 text-sm font-bold text-white">
+                            {(lawyer.name || "?").charAt(0)}
+                          </div>
+                          <div>
+                            <p className="font-medium text-slate-800">{lawyer.name || "—"}</p>
+                            <p className="text-xs text-slate-400">{lawyer.phone || ""}</p>
+                          </div>
+                        </div>
+                      </td>
+                      <td className="px-4 py-3 font-mono text-xs text-slate-600">
+                        {lawyer.barId || "—"}
+                      </td>
+                      <td className="px-4 py-3 text-slate-600">
+                        {lawyer.specialization || "সাধারণ"}
+                      </td>
+                      <td className="px-4 py-3 text-slate-600">
+                        {lawyer.district || "—"}
+                      </td>
+                      <td className="px-4 py-3">
+                        <span className={`inline-block rounded-full px-2 py-0.5 text-xs font-medium ${
+                          lawyer.status === "active"
+                            ? "bg-emerald-100 text-emerald-700"
+                            : lawyer.status === "pending"
+                              ? "bg-amber-100 text-amber-700"
+                              : "bg-slate-100 text-slate-600"
+                        }`}>
+                          {lawyer.status === "active" ? "সক্রিয়" : lawyer.status === "pending" ? "অপেক্ষমাণ" : lawyer.status || "—"}
+                        </span>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </section>
+      )}
+
+      {tab === "officers" && (
+        <section className="mt-5">
+          <div className="mb-4">
+            <h2 className="text-sm font-semibold">অফিসার তালিকা</h2>
+            <p className="text-xs text-slate-500">
+              সক্রিয় লিগ্যাল এইড অফিসার এবং তাদের কার্যক্রম
+            </p>
+          </div>
+
+          {data.officers.length === 0 ? (
+            <div className="rounded-xl border border-slate-200 bg-slate-50 p-8 text-center">
+              <div className="mx-auto mb-3 flex h-12 w-12 items-center justify-center rounded-full bg-slate-100 text-xl">
+                👤
+              </div>
+              <p className="text-sm text-slate-500">কোনো সক্রিয় অফিসার নেই</p>
+            </div>
+          ) : (
+            <div className="overflow-hidden rounded-xl border border-slate-200">
+              <table className="w-full text-sm">
+                <thead className="bg-slate-50">
+                  <tr className="border-b border-slate-200 text-left text-xs font-medium text-slate-600">
+                    <th className="px-4 py-3">অফিসার</th>
+                    <th className="px-4 py-3">ভূমিকা</th>
+                    <th className="px-4 py-3 text-center">নিষ্পত্তি</th>
+                    <th className="px-4 py-3 text-center">চলমান</th>
+                    <th className="px-4 py-3">পারফরম্যান্স</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-100">
+                  {data.officers.map((officer, idx) => (
+                    <tr key={officer.id} className="transition-colors hover:bg-slate-50">
+                      <td className="px-4 py-3">
+                        <div className="flex items-center gap-3">
+                          <div className="flex h-9 w-9 items-center justify-center rounded-full bg-gradient-to-br from-blue-500 to-blue-600 text-sm font-bold text-white">
+                            {officer.name.charAt(0)}
+                          </div>
+                          <p className="font-medium text-slate-800">{officer.name}</p>
+                        </div>
+                      </td>
+                      <td className="px-4 py-3 text-slate-600">
+                        {officer.role || "লিগ্যাল এইড অফিসার"}
+                      </td>
+                      <td className="px-4 py-3 text-center">
+                        <span className="text-lg font-semibold text-emerald-600">{officer.handled}</span>
+                      </td>
+                      <td className="px-4 py-3 text-center">
+                        <span className="text-lg font-semibold text-blue-600">{officer.openCases}</span>
+                      </td>
+                      <td className="px-4 py-3">
+                        <div className="flex items-center gap-2">
+                          <div className="h-2 w-24 overflow-hidden rounded-full bg-slate-200">
+                            <div
+                              className="h-full rounded-full bg-gradient-to-r from-emerald-400 to-emerald-500"
+                              style={{ width: `${Math.min(100, (officer.handled / Math.max(1, data.officers[0]?.handled || 1)) * 100)}%` }}
+                            />
+                          </div>
+                          {idx === 0 && (
+                            <span className="rounded-full bg-amber-100 px-2 py-0.5 text-[10px] font-bold text-amber-700">
+                              শীর্ষ
+                            </span>
+                          )}
+                        </div>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </section>
+      )}
+
+      {tab === "cases" && (
+        <section className="mt-5">
+          <div className="mb-4 flex flex-wrap items-center justify-between gap-4">
+            <div>
+              <h2 className="text-sm font-semibold">সব মামলা</h2>
+              <p className="text-xs text-slate-500">
+                {data.cases.length} টি মামলা পাওয়া গেছে
+              </p>
+            </div>
+          </div>
+
+          {/* Filters */}
+          <div className="mb-4 flex flex-wrap gap-3">
+            <input
+              type="text"
+              placeholder="নাম বা রেফারেন্স খুঁজুন..."
+              value={caseFilters.search}
+              onChange={(e) => setCaseFilters((f) => ({ ...f, search: e.target.value }))}
+              className="rounded-lg border border-slate-300 px-3 py-2 text-sm placeholder:text-slate-400"
+            />
+            <select
+              value={caseFilters.district}
+              onChange={(e) => setCaseFilters((f) => ({ ...f, district: e.target.value }))}
+              className="rounded-lg border border-slate-300 px-3 py-2 text-sm"
+            >
+              <option value="">সব জেলা</option>
+              {data.districts.map((d) => (
+                <option key={d} value={d}>{d}</option>
+              ))}
+            </select>
+            <select
+              value={caseFilters.stage}
+              onChange={(e) => setCaseFilters((f) => ({ ...f, stage: e.target.value }))}
+              className="rounded-lg border border-slate-300 px-3 py-2 text-sm"
+            >
+              <option value="">সব স্তর</option>
+              <option value="intake">গ্রহণ</option>
+              <option value="screening">স্ক্রিনিং</option>
+              <option value="mediation">মধ্যস্থতা</option>
+              <option value="advocacy">আইনি সহায়তা</option>
+              <option value="settled">নিষ্পত্তি</option>
+              <option value="closed">বন্ধ</option>
+            </select>
+            <select
+              value={caseFilters.severity}
+              onChange={(e) => setCaseFilters((f) => ({ ...f, severity: e.target.value }))}
+              className="rounded-lg border border-slate-300 px-3 py-2 text-sm"
+            >
+              <option value="">সব জরুরিতা</option>
+              <option value="emergency">জরুরি</option>
+              <option value="high">উচ্চ</option>
+              <option value="medium">মধ্যম</option>
+              <option value="low">নিম্ন</option>
+            </select>
+            {(caseFilters.search || caseFilters.district || caseFilters.stage || caseFilters.severity) && (
+              <button
+                onClick={() => setCaseFilters({ district: "", stage: "", severity: "", search: "" })}
+                className="rounded-lg border border-slate-300 px-3 py-2 text-sm text-slate-600 hover:bg-slate-50"
+              >
+                ফিল্টার মুছুন
+              </button>
+            )}
+          </div>
+
+          {(() => {
+            const filtered = data.cases.filter((c) => {
+              if (caseFilters.district && c.district !== caseFilters.district) return false;
+              if (caseFilters.stage && c.stage !== caseFilters.stage) return false;
+              if (caseFilters.severity && c.severity !== caseFilters.severity) return false;
+              if (caseFilters.search) {
+                const search = caseFilters.search.toLowerCase();
+                const match =
+                  (c.ref?.toLowerCase().includes(search)) ||
+                  (c.applicantName?.toLowerCase().includes(search)) ||
+                  (c.problem?.toLowerCase().includes(search));
+                if (!match) return false;
+              }
+              return true;
+            });
+
+            if (filtered.length === 0) {
+              return (
+                <div className="rounded-xl border border-slate-200 bg-slate-50 p-8 text-center">
+                  <div className="mx-auto mb-3 flex h-12 w-12 items-center justify-center rounded-full bg-slate-100 text-xl">
+                    📁
+                  </div>
+                  <p className="text-sm text-slate-500">কোনো মামলা পাওয়া যায়নি</p>
+                </div>
+              );
+            }
+
+            return (
+              <div className="overflow-x-auto rounded-xl border border-slate-200">
+                <table className="w-full text-sm">
+                  <thead className="bg-slate-50">
+                    <tr className="border-b border-slate-200 text-left text-xs font-medium text-slate-600">
+                      <th className="px-4 py-3">রেফারেন্স</th>
+                      <th className="px-4 py-3">আবেদনকারী</th>
+                      <th className="px-4 py-3">জেলা</th>
+                      <th className="px-4 py-3">স্তর</th>
+                      <th className="px-4 py-3">জরুরিতা</th>
+                      <th className="px-4 py-3">ক্যাটাগরি</th>
+                      <th className="px-4 py-3">তারিখ</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-100">
+                    {filtered.map((c) => (
+                      <tr key={c.id} className="transition-colors hover:bg-slate-50">
+                        <td className="px-4 py-3">
+                          <span className="font-mono text-xs font-medium text-blue-600">
+                            {c.ref || c.id.slice(0, 8)}
+                          </span>
+                        </td>
+                        <td className="px-4 py-3">
+                          <div>
+                            <p className="font-medium text-slate-800">{c.applicantName || "—"}</p>
+                            <p className="truncate text-xs text-slate-400" style={{ maxWidth: 200 }}>
+                              {c.problem || ""}
+                            </p>
+                          </div>
+                        </td>
+                        <td className="px-4 py-3 text-slate-600">{c.district || "—"}</td>
+                        <td className="px-4 py-3">
+                          <span className={`inline-block rounded-full px-2 py-0.5 text-xs font-medium ${
+                            c.stage === "settled" ? "bg-emerald-100 text-emerald-700" :
+                            c.stage === "closed" ? "bg-slate-100 text-slate-600" :
+                            c.stage === "mediation" ? "bg-blue-100 text-blue-700" :
+                            c.stage === "advocacy" ? "bg-violet-100 text-violet-700" :
+                            "bg-amber-100 text-amber-700"
+                          }`}>
+                            {c.stage === "intake" ? "গ্রহণ" :
+                             c.stage === "screening" ? "স্ক্রিনিং" :
+                             c.stage === "mediation" ? "মধ্যস্থতা" :
+                             c.stage === "advocacy" ? "আইনি সহায়তা" :
+                             c.stage === "settled" ? "নিষ্পত্তি" :
+                             c.stage === "closed" ? "বন্ধ" : c.stage || "—"}
+                          </span>
+                        </td>
+                        <td className="px-4 py-3">
+                          <span className={`inline-block rounded-full px-2 py-0.5 text-xs font-medium ${
+                            c.severity === "emergency" ? "bg-red-100 text-red-700" :
+                            c.severity === "high" ? "bg-orange-100 text-orange-700" :
+                            c.severity === "medium" ? "bg-yellow-100 text-yellow-700" :
+                            "bg-slate-100 text-slate-600"
+                          }`}>
+                            {c.severity === "emergency" ? "জরুরি" :
+                             c.severity === "high" ? "উচ্চ" :
+                             c.severity === "medium" ? "মধ্যম" :
+                             c.severity === "low" ? "নিম্ন" : "—"}
+                          </span>
+                        </td>
+                        <td className="px-4 py-3 text-xs text-slate-600">
+                          {c.category || "—"}
+                        </td>
+                        <td className="px-4 py-3 text-xs text-slate-500">
+                          {c.createdAt ? new Date(c.createdAt).toLocaleDateString("bn-BD") : "—"}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            );
+          })()}
         </section>
       )}
 
@@ -612,12 +1117,60 @@ export default function ChiefConsole() {
   );
 }
 
-function Kpi({ label, value, sub }: { label: string; value: number; sub: string }) {
+const KPI_COLORS = {
+  blue: {
+    bg: "bg-gradient-to-br from-blue-500 to-blue-600",
+    light: "bg-blue-50",
+    text: "text-blue-600",
+    border: "border-blue-100",
+  },
+  emerald: {
+    bg: "bg-gradient-to-br from-emerald-500 to-emerald-600",
+    light: "bg-emerald-50",
+    text: "text-emerald-600",
+    border: "border-emerald-100",
+  },
+  violet: {
+    bg: "bg-gradient-to-br from-violet-500 to-violet-600",
+    light: "bg-violet-50",
+    text: "text-violet-600",
+    border: "border-violet-100",
+  },
+  amber: {
+    bg: "bg-gradient-to-br from-amber-500 to-amber-600",
+    light: "bg-amber-50",
+    text: "text-amber-600",
+    border: "border-amber-100",
+  },
+};
+
+function Kpi({
+  icon,
+  label,
+  value,
+  sub,
+  color = "blue",
+}: {
+  icon: string;
+  label: string;
+  value: number;
+  sub: string;
+  color?: keyof typeof KPI_COLORS;
+}) {
+  const colors = KPI_COLORS[color];
   return (
-    <div className="rounded-lg border border-slate-200 p-4">
-      <p className="text-xs text-slate-500">{label}</p>
-      <p className="mt-1 text-2xl font-semibold">{value}</p>
-      <p className="mt-1 text-xs text-slate-500">{sub}</p>
+    <div className={`relative overflow-hidden rounded-xl border ${colors.border} ${colors.light} p-5 transition-all hover:shadow-md`}>
+      <div className="flex items-start justify-between">
+        <div>
+          <p className="text-xs font-medium text-slate-500">{label}</p>
+          <p className={`mt-2 text-3xl font-bold ${colors.text}`}>{value}</p>
+          <p className="mt-1 text-xs text-slate-400">{sub}</p>
+        </div>
+        <div className={`flex h-12 w-12 items-center justify-center rounded-xl ${colors.bg} text-xl text-white shadow-lg`}>
+          {icon}
+        </div>
+      </div>
+      <div className={`absolute -bottom-4 -right-4 h-24 w-24 rounded-full ${colors.bg} opacity-10`} />
     </div>
   );
 }
