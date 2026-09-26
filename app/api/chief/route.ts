@@ -180,7 +180,7 @@ export async function GET(request: Request) {
     // Table may not exist yet
   }
 
-  // All cases for supervision (simplified query that should work)
+  // All cases for supervision (show all cases including demo/mock)
   let casesResult: { results?: Record<string, unknown>[] } = { results: [] };
   try {
     casesResult = await db
@@ -189,7 +189,6 @@ export async function GET(request: Request) {
                 c.applicant_name AS applicantName, c.phone, c.priority, c.severity,
                 c.legal_category AS category, c.created_at AS createdAt
            FROM cases c
-          WHERE c.is_mock = 0 OR c.is_mock IS NULL
           ORDER BY c.created_at DESC
           LIMIT 200`,
       )
