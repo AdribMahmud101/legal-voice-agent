@@ -4,6 +4,7 @@ import Image from "next/image";
 import Link from "next/link";
 import { useState, type ReactNode } from "react";
 import { AgentFab } from "./AgentFab";
+import BuildStamp from "@/components/build-stamp";
 
 export type DlaoTab = "applications" | "new" | "cases" | "panel" | "hearing" | "online" | "lawyers" | "reports";
 
@@ -29,6 +30,23 @@ const TABS: Array<{ id: DlaoTab; label: string }> = [
   { id: "reports", label: "প্রতিবেদন" },
 ];
 
+/**
+ * Today, in Bangla. A hardcoded weekday and date was a claim about the data that
+ * went stale silently; the browser already knows what day it is.
+ */
+function todayBn(): string {
+  try {
+    return new Date().toLocaleDateString("bn-BD", {
+      weekday: "long",
+      day: "numeric",
+      month: "long",
+      year: "numeric",
+    });
+  } catch {
+    return "";
+  }
+}
+
 export function DlaoShell({ children, activeTab, onTabChange, tabCounts }: DlaoShellProps) {
   const [localTab, setLocalTab] = useState<DlaoTab>(activeTab || "applications");
   const [language, setLanguage] = useState<"bn" | "en">("bn");
@@ -44,7 +62,7 @@ export function DlaoShell({ children, activeTab, onTabChange, tabCounts }: DlaoS
       <div className="dlao-government-strip">
         <div className="dlao-shell-width dlao-government-inner">
           <span><span className="dlao-government-dot" /> পরিচালনা ব্যবস্থাপনা সরকার / Government of the People&apos;s Republic of Bangladesh.</span>
-          <span>সর্বশেষ হালনাগাদ: ৭ সেপ্টেম্বর ২০২৬</span>
+          <BuildStamp />
         </div>
       </div>
 
@@ -83,7 +101,7 @@ export function DlaoShell({ children, activeTab, onTabChange, tabCounts }: DlaoS
             <span>ডেলওয়েকা জেলা লিগ্যাল এইড অফিস</span>
           </div>
           <Link href="/citizen/apply" className="dlao-new-application">+ নতুন আবেদন পরিচালনা করুন (ওয়েব-ফর্ম)</Link>
-          <span className="dlao-updated">সোমবার, ৭ সেপ্টেম্বর ২০২৬</span>
+          <span className="dlao-updated">{todayBn()}</span>
         </div>
       </div>
 
