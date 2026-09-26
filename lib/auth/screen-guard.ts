@@ -208,12 +208,16 @@ export function isSystemAdministrator(role: string | null | undefined): boolean 
  * missing, so it lives here next to the screen list rather than inline in a
  * `window.location.href` ternary.
  *
- * `chief` maps to /dlao because the Chief's own console is not built yet; when it is,
- * this is the one line that changes.
+ * `chief` maps to /chief — the Chief's own supervisory console, which exists now. It
+ * used to map to /dlao, which put the officer accountable for the district office into
+ * the district *officer's* queue on arrival. `chairman` shares that console: the guide
+ * drives both from one template and they differ only on the panel list and misconduct.
  */
 export function homePathForRole(role: string | null | undefined): string {
   const screen = whichScreen(role);
   switch (screen) {
+    case "chief":
+      return "/chief";
     case "citizen":
       return "/citizen";
     case "lawyer":

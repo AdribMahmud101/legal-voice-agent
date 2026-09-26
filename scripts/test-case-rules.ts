@@ -264,10 +264,17 @@ console.log("mandatory districts + id minting");
 
 console.log("settlement certification");
 {
-  check("cannot certify unsigned", !certificationState(false, true, false).ok);
-  check("cannot certify with one signature", !certificationState(true, false, false).ok);
-  check("certifies when both signed", certificationState(true, true, false).ok);
-  check("cannot certify twice", !certificationState(true, true, true).ok);
+  // All three parties: applicant, counterparty, mediator. Two used to be enough, which
+  // would have certified a settlement with the mediator still unsigned.
+  check("cannot certify with no signature", !certificationState(false, false, false, false).ok);
+  check("cannot certify with only the applicant signed", !certificationState(true, false, false, false).ok);
+  check("cannot certify with only the counterparty signed", !certificationState(false, true, false, false).ok);
+  check("cannot certify with only the mediator signed", !certificationState(false, false, true, false).ok);
+  check("cannot certify with two of three signed", !certificationState(true, true, false, false).ok);
+  check("cannot certify when the mediator is the one missing", !certificationState(true, true, false, false).ok);
+  check("certifies when all three are signed", certificationState(true, true, true, false).ok);
+  check("cannot certify twice", !certificationState(true, true, true, true).ok);
+  check("an unsigned block names who is outstanding", /মধ্যস্থতাকারী/.test(certificationState(true, true, false, false).noteBn ?? ""), certificationState(true, true, false, false).noteBn);
 }
 
 console.log("role registry — every offered role must actually log in");

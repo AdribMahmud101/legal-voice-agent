@@ -78,9 +78,20 @@ export async function GET(request: Request) {
       results = (
         await db
           .prepare(
-            `${baseQuery} WHERE c.id IN (SELECT case_id FROM panel_assignments WHERE panel_lawyer_id = (SELECT id FROM panel_lawyers WHERE name_bn = ? LIMIT 1) AND status = 'active') ORDER BY c.created_at DESC`,
+            // Resolved by the account link, with the name only as a fallback for a
+            // roster entry nobody has claimed yet. A name is not a key: a mock lawyer's
+            // display name matches nothing, and two lawyers sharing a name would see
+            // each other's confidential cases.
+            `${baseQuery} WHERE c.id IN (
+              SELECT case_id FROM panel_assignments
+               WHERE status = 'active'
+                 AND panel_lawyer_id = COALESCE(
+                   (SELECT id FROM panel_lawyers WHERE user_id = ? LIMIT 1),
+                   (SELECT id FROM panel_lawyers WHERE name_bn = ? LIMIT 1)
+                 )
+            ) ORDER BY c.created_at DESC`,
           )
-          .bind(user.displayName)
+          .bind(user.id, user.displayName)
           .all<PortalCaseRow>()
       ).results;
     } else {

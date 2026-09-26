@@ -359,10 +359,31 @@ export function applicationToCase(app: { appId: string; districtCode: string }, 
 // ---------------------------------------------------------------------------
 // Settlement certification: all three parties must e-sign before the Chief acts.
 
-export function certificationState(signedA: boolean, signedB: boolean, certified: boolean): ActionVerdict {
+/**
+ * The certification gate: all three parties must have signed.
+ *
+ * Applicant, the opposite party and the mediator — three, not two. The signature check
+ * originally took two booleans, which let a settlement through with the counterparty or
+ * the mediator still unsigned, and a certified settlement is a court decree waiting to
+ * happen. `settlements` stores all three, so the rule now reads all three.
+ */
+export function certificationState(
+  signedA: boolean,
+  signedB: boolean,
+  signedC: boolean,
+  certified: boolean,
+): ActionVerdict {
   if (certified) return BLOCKED("alreadyCertified", "ইতিমধ্যে প্রত্যায়িত।");
-  if (!signedA || !signedB) {
-    return BLOCKED("unsigned", "সব পক্ষ স্বাক্ষর করার আগে প্রত্যায়ন করা যাবে না।");
+  if (!signedA || !signedB || !signedC) {
+    const outstanding = [
+      !signedA ? "আবেদনকারী" : null,
+      !signedB ? "বিপরীত পক্ষ" : null,
+      !signedC ? "মধ্যস্থতাকারী" : null,
+    ].filter(Boolean);
+    return BLOCKED(
+      "unsigned",
+      `সব পক্ষ স্বাক্ষর করার আগে প্রত্যায়ন করা যাবে না। বাকি: ${outstanding.join(", ")}।`,
+    );
   }
   return ALLOWED();
 }

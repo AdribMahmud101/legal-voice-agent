@@ -117,8 +117,10 @@ console.log("lawyer change flags paid-but-incomplete tranches as refund");
 
 console.log("settlement certification gate");
 {
-  check("unsigned cannot certify", !certificationState(false, false, false).ok);
-  check("all three signed certifies", certificationState(true, true, false).ok);
+  check("unsigned cannot certify", !certificationState(false, false, false, false).ok);
+  // applicant, counterparty, mediator — all three.
+  check("two of three cannot certify", !certificationState(true, true, false, false).ok);
+  check("all three signed certifies", certificationState(true, true, true, false).ok);
 }
 
 console.log("jurisdiction transfer is a one-way door while it is pending");
