@@ -4,6 +4,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { DlaoShell, type DlaoTab } from "@/lib/ui/shell/DlaoShell";
 import DlaoAssignmentWorkbench from "@/components/dlao-assignment-workbench";
+import AiAssistCallout from "@/components/ai-assist-callout";
 import type { PortalCase } from "@/lib/data/case-projection";
 
 const SLA_DAYS = 65;
@@ -77,6 +78,16 @@ export default function DlaoDashboard() {
   const reload = useCallback(() => setReloadToken((n) => n + 1), []);
 
   const visibleCases = useMemo(() => getVisibleCases(cases, activeTab), [cases, activeTab]);
+  // Open cases still waiting on a panel lawyer. The callout needs a number to be worth
+  // clicking; without one it is just decoration on a screen an officer sees 50 times a day.
+  const waitingForLawyer = cases.filter(
+    (item) =>
+      !item.assignedLawyerId &&
+      item.status !== "closed" &&
+      item.status !== "resolved" &&
+      item.status !== "settled" &&
+      item.status !== "unresolved",
+  ).length;
   const overdueCount = cases.filter((item) => getSlaState(item.applicationTime) === "overdue").length;
   const nearCount = cases.filter((item) => getSlaState(item.applicationTime) === "near").length;
 
@@ -91,6 +102,11 @@ export default function DlaoDashboard() {
       ) : null}
 
       {activeTab === "lawyers" ? null : (
+        <>
+      <AiAssistCallout
+        waitingCount={waitingForLawyer}
+        onOpen={() => setActiveTab("lawyers")}
+      />
       <section className="dlao-sla-alert" aria-label="SLA summary">
         <div className="dlao-sla-alert-header">
           <span className="dlao-sla-alert-icon" aria-hidden="true">!</span>
@@ -125,6 +141,7 @@ export default function DlaoDashboard() {
           )}
         </div>
       </section>
+        </>
       )}
     </DlaoShell>
   );
