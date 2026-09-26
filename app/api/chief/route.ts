@@ -167,12 +167,12 @@ export async function GET(request: Request) {
   try {
     panelLawyers = await db
       .prepare(
-        `SELECT pl.id, pl.user_id AS userId, pl.bar_council_id AS barId, pl.specialization,
-                pl.district, pl.status, pl.approved_at AS approvedAt,
-                u.display_name AS name, u.phone
+        `SELECT pl.id, pl.user_id AS userId, pl.bar_registration AS barId,
+                pl.specialisations AS specialization,
+                pl.jurisdiction_district_name AS district, pl.list_status AS status,
+                pl.approved_at AS approvedAt, pl.name_bn AS name, pl.phone
            FROM panel_lawyers pl
-           LEFT JOIN users u ON u.id = pl.user_id
-          ORDER BY pl.approved_at DESC
+          ORDER BY pl.created_at DESC
           LIMIT 100`,
       )
       .all<Record<string, unknown>>();

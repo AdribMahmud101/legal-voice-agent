@@ -696,13 +696,13 @@ export default function ChiefConsole() {
                       </td>
                       <td className="px-4 py-3">
                         <span className={`inline-block rounded-full px-2 py-0.5 text-xs font-medium ${
-                          lawyer.status === "active"
+                          lawyer.status === "on_panel" || lawyer.status === "active"
                             ? "bg-emerald-100 text-emerald-700"
-                            : lawyer.status === "pending"
+                            : lawyer.status === "pending" || lawyer.status === "proposed"
                               ? "bg-amber-100 text-amber-700"
                               : "bg-slate-100 text-slate-600"
                         }`}>
-                          {lawyer.status === "active" ? "সক্রিয়" : lawyer.status === "pending" ? "অপেক্ষমাণ" : lawyer.status || "—"}
+                          {lawyer.status === "on_panel" || lawyer.status === "active" ? "সক্রিয়" : lawyer.status === "pending" || lawyer.status === "proposed" ? "অপেক্ষমাণ" : lawyer.status || "—"}
                         </span>
                       </td>
                     </tr>
