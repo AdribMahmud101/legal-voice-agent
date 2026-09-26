@@ -10,6 +10,7 @@
 
 import { buildConsultationScript, type ConsultationScript } from "./consultation-script";
 import { seedLawyerActionPlan } from "./lawyer-assignment";
+import { AUDIT_KINDS, writeAudit } from "../audit/log";
 import type { ApplicantFacts, EligibilityDecision } from "./legal-aid-eligibility";
 import type { D1Database } from "@/lib/auth/d1-session";
 
@@ -291,6 +292,15 @@ export async function startOrResumeConsultation(
     .prepare(`UPDATE consultations SET case_id = ? WHERE id = ?`)
     .bind(caseId, consultationId)
     .run();
+
+  await writeAudit(db, {
+    kind: AUDIT_KINDS.eligibility_decided,
+    refId: caseId,
+    actorId: input.dlaoUserId,
+    actorRole: "dlao",
+    detail: `যোগ্যতা নির্ধারণ: ${script.decision.eligible ? "সহায়তার শর্ত পূরণ" : "শর্ত পূরণ হয়নি"} (${script.decision.basis ?? "—"})`,
+    reason: script.decision.act.bn,
+  });
 
   return {
     consultationId,

@@ -12,6 +12,7 @@ import { NextResponse } from "next/server";
 import { getCloudflareContext } from "@opennextjs/cloudflare";
 import { getD1SessionUser, type D1Database } from "@/lib/auth/d1-session";
 import { getLocalSessionUser } from "@/lib/auth/local-session";
+import { writeAudit, AUDIT_KINDS } from "@/lib/audit/log";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -135,6 +136,15 @@ export async function POST(request: Request) {
         user.id,
       )
       .run();
+
+    await writeAudit(db, {
+      kind: AUDIT_KINDS.complaint_filed,
+      refId: assignment.case_id,
+      actorId: user.id,
+      actorRole: "citizen",
+      detail: `${assignment.lawyer_name_bn ?? "আইনজীবী"} সংক্রান্ত অভিযোগ: ${REASON_BN[reasonCode]}`,
+      reason: detailsBn || null,
+    });
 
     return NextResponse.json({ ok: true, complaintId: id, reasonBn: REASON_BN[reasonCode] });
   } catch (err: unknown) {

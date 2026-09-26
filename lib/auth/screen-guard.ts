@@ -23,7 +23,8 @@ export type ScreenId =
   | "national"
   | "calendar"
   | "case-detail"
-  | "intake";
+  | "intake"
+  | "admin";
 
 /**
  * The console each role belongs on. Anything not listed falls back to the DLAO
@@ -86,12 +87,14 @@ const DENY_TITLES: Record<ScreenId, { en: string; bn: string }> = {
   calendar: { en: "Hearings calendar", bn: "শুনানির ক্যালেন্ডার" },
   "case-detail": { en: "Case detail", bn: "কেস বিবরণ" },
   intake: { en: "Application intake", bn: "আবেদন গ্রহণ" },
+  admin: { en: "System administration", bn: "সিস্টেম প্রশাসন" },
 };
 
 /** Who is allowed to open which console outright. */
 const SCREEN_ROLES: Record<ScreenId, readonly string[] | "any-staff"> = {
   dlao: "any-staff",
   chief: ["chief", "chief_legal_aid_officer", "chairman", "metropolitan_legal_aid_officer"],
+  admin: ["chief", "chief_legal_aid_officer"],
   citizen: ["citizen"],
   lawyer: ["panel", "panel_lawyer", "judge", "chowki", "sclao", "labour", "chief", "chief_legal_aid_officer", "dlao", "dlao_officer"],
   mediator: ["mediator", "special_mediator"],
@@ -172,4 +175,19 @@ export function canSeeSensitiveCases(role: string | null | undefined): boolean {
   // `chairman` is a separate console, and `admin` is system administration, so
   // neither inherits the Chief DLAO's case visibility.
   return SENSITIVE_CASE_ROLES.includes(role as AppRole);
+}
+
+/**
+ * The system administrator: the Chief DLAO.
+ *
+ * Administration is deliberately *not* granted to `admin`/`chairman` as roles. The
+ * Chief DLAO is the officer accountable for a district office, which is the only
+ * authority that should be able to read the audit trail or change who can do what. The
+ * `admin` role is a systems account and the Chairman is a committee function; neither
+ * is a person answerable for this district's caseload.
+ *
+ * `cdlao` is a registered legacy alias of `chief`, so both spellings resolve here.
+ */
+export function isSystemAdministrator(role: string | null | undefined): boolean {
+  return role === "chief";
 }

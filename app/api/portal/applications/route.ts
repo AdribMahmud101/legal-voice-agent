@@ -10,6 +10,7 @@ import {
   priorityForSeverity,
   urgencyForSeverity,
 } from "@/lib/agent/knowledge/severity-classification";
+import { generateVoicePin, sha256Hex } from "@/lib/auth/hash";
 import { inferLegalCategory } from "@/lib/legal/category";
 import { extractDistrict } from "@/lib/legal/districts";
 import {
@@ -48,20 +49,6 @@ function getDatabase(): D1Database | null {
   } catch {
     return null;
   }
-}
-
-/** SHA-256 hex, matching the voice path's pin and session hashing. */
-async function sha256Hex(value: string): Promise<string> {
-  const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(value));
-  return Array.from(new Uint8Array(digest))
-    .map((byte) => byte.toString(16).padStart(2, "0"))
-    .join("");
-}
-
-/** Four digits, never a leading zero — the same rule the voice PIN follows. */
-function generateVoicePin(): string {
-  const value = 1000 + (crypto.getRandomValues(new Uint32Array(1))[0] % 9000);
-  return String(value);
 }
 
 function generateDocketId(): string {

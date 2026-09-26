@@ -22,6 +22,7 @@
 
 import { actionsForTrack, deadlineFrom } from "./lawyer-tracker";
 import type { D1Database } from "@/lib/auth/d1-session";
+import { AUDIT_KINDS, writeAudit } from "../audit/log";
 
 export interface LawyerSummary {
   id: string;
@@ -245,22 +246,16 @@ export async function assignPanelLawyer(
     )
     .run();
 
-  // Audit-logged, like every other thing that moves money or access.
-  await db
-    .prepare(
-      `INSERT INTO audit_log (id, kind, ref_id, actor_id, actor_role, detail, reason)
-       VALUES (?, ?, ?, ?, 'dlao', ?, ?)`,
-    )
-    .bind(
-      `AUD-${crypto.randomUUID()}`,
-      // The stable, machine-readable kind. Branch on this, not on the prose.
-      previous ? "lawyer.reassign" : "lawyer.assign",
-      assignmentId,
-      args.officerUserId,
-      `${lawyer.name_bn} → ${target.docket_id}`,
-      args.noteBn?.trim() || null,
-    )
-    .run();
+  // Audit-logged through the shared writer, so the event kind comes from the
+  // catalogue rather than a literal typed here.
+  await writeAudit(db, {
+    kind: previous ? AUDIT_KINDS.lawyer_reassigned : AUDIT_KINDS.lawyer_assigned,
+    refId: assignmentId,
+    actorId: args.officerUserId,
+    actorRole: "dlao",
+    detail: `${lawyer.name_bn} → ${target.docket_id}${previous ? ` (পূর্ববর্তী: ${previous.lawyer_name ?? "—"})` : ""}`,
+    reason: args.noteBn?.trim() || null,
+  });
 
   return {
     assignmentId,
