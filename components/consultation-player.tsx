@@ -66,7 +66,10 @@ export default function ConsultationPlayer({
   panelLawyerName,
   applicantName,
   autoStart = true,
+  /** Turns at or below this seq are shown immediately, so an interrupted playback resumes. */
+  startFromSeq = 0,
   onFirstTurn,
+  onProgress,
   onFinished,
 }: {
   script: ConsultationScript;
@@ -74,10 +77,23 @@ export default function ConsultationPlayer({
   panelLawyerName: string | null;
   applicantName: string;
   autoStart?: boolean;
+  startFromSeq?: number;
   onFirstTurn?: () => void;
+  /** Fired as turns land, so the caller can persist progress. */
+  onProgress?: (seq: number) => void;
   onFinished?: () => void;
 }) {
-  const [visible, setVisible] = useState<ConsultationTurn[]>([]);
+  // Declared before `visible`: the resume initialiser below reads it during the first
+  // render, and a ref declared after it throws a temporal-dead-zone error that takes
+  // the whole component down — which looks exactly like "the animation never appears".
+  const turnsRef = useRef<ConsultationTurn[]>(script.turns);
+  turnsRef.current = script.turns;
+
+  const [visible, setVisible] = useState<ConsultationTurn[]>(() =>
+    // Resuming: everything the applicant has already seen is shown at once, and the
+    // timer chain picks up from the next unseen turn.
+    startFromSeq > 0 ? turnsRef.current.filter((t) => t.seq <= startFromSeq) : [],
+  );
   const [typing, setTyping] = useState<ConsultationTurn | null>(null);
   const [phase, setPhase] = useState<ConsultationPhase>("connect");
   const [playing, setPlaying] = useState(false);
@@ -100,6 +116,10 @@ export default function ConsultationPlayer({
   useEffect(() => {
     onFirstTurnRef.current = onFirstTurn;
   }, [onFirstTurn]);
+  const onProgressRef = useRef(onProgress);
+  useEffect(() => {
+    onProgressRef.current = onProgress;
+  }, [onProgress]);
   const firstTurnRef = useRef(false);
   // Set by Skip. The timer chain checks it, because the playback effect cannot be
   // torn down from here — its deps have not changed — so without this the chain would
@@ -121,7 +141,14 @@ export default function ConsultationPlayer({
     if (!autoStart || runId === 0) return;
     let cancelled = false;
     const timers: ReturnType<typeof setTimeout>[] = [];
-    let index = 0;
+    // Resume where the applicant left off rather than replaying from turn 1.
+    let index = Math.max(0, turns.findIndex((t) => t.seq > startFromSeq));
+    if (index === -1) index = turns.length;
+    if (index >= turns.length) {
+      setPlaying(false);
+      setDone(true);
+      return;
+    }
 
     setPlaying(true);
 
@@ -153,6 +180,7 @@ export default function ConsultationPlayer({
         if (cancelled || stoppedRef.current) return;
         setTyping(null);
         setVisible((prev) => (prev.some((t) => t.seq === turn.seq) ? prev : [...prev, turn]));
+        onProgressRef.current?.(turn.seq);
         index += 1;
         timers.push(setTimeout(step, PACE.betweenTurns));
       }, speakMs(turn.textBn, turn.speaker !== "system")));
@@ -164,7 +192,7 @@ export default function ConsultationPlayer({
       timers.forEach(clearTimeout);
     };
     // onFinished is deliberately absent: it is read through the ref above.
-  }, [autoStart, runId, turns]);
+  }, [autoStart, runId, turns, startFromSeq]);
 
   /** Jump straight to the verdict: reveal every remaining turn at once. */
   const skipToEnd = useCallback(() => {
@@ -172,6 +200,7 @@ export default function ConsultationPlayer({
     finishedRef.current = true;
     setTyping(null);
     setVisible(turns);
+    onProgressRef.current?.(turns[turns.length - 1]?.seq ?? 0);
     setPhase(turns[turns.length - 1]?.phase ?? "close");
     setPlaying(false);
     setDone(true);

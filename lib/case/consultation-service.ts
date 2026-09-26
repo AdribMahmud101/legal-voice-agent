@@ -9,6 +9,7 @@
  */
 
 import { buildConsultationScript, type ConsultationScript } from "./consultation-script";
+import { actionsForTrack, deadlineFrom } from "./lawyer-tracker";
 import type { ApplicantFacts, EligibilityDecision } from "./legal-aid-eligibility";
 import type { D1Database } from "@/lib/auth/d1-session";
 
@@ -61,6 +62,12 @@ export interface PersistedConsultation {
   script: ConsultationScript;
   /** True when this call created a case, false when an earlier one already did. */
   created: boolean;
+  /** When the applicant first saw the playback; null if they never have. */
+  viewedAt: string | null;
+  /** Highest turn the applicant has actually seen, for resuming. */
+  lastSeq: number;
+  /** Set once playback reached the end; only this suppresses the auto-open. */
+  completedAt: string | null;
 }
 
 /**
@@ -75,10 +82,18 @@ export async function startOrResumeConsultation(
 ): Promise<PersistedConsultation> {
   const existing = await db
     .prepare(
-      `SELECT id, case_id, transcript_json FROM consultations WHERE application_id = ? LIMIT 1`,
+      `SELECT id, case_id, transcript_json, applicant_viewed_at, applicant_last_seq, applicant_completed_at
+       FROM consultations WHERE application_id = ? LIMIT 1`,
     )
     .bind(input.applicationId)
-    .first<{ id: string; case_id: string | null; transcript_json: string }>();
+    .first<{
+      id: string;
+      case_id: string | null;
+      transcript_json: string;
+      applicant_viewed_at: string | null;
+      applicant_last_seq: number;
+      applicant_completed_at: string | null;
+    }>();
 
   if (existing) {
     const assignment = await db
@@ -95,6 +110,9 @@ export async function startOrResumeConsultation(
       decision: script.decision,
       script,
       created: false,
+      viewedAt: existing.applicant_viewed_at,
+      lastSeq: existing.applicant_last_seq ?? 0,
+      completedAt: existing.applicant_completed_at,
     };
   }
 
@@ -257,6 +275,33 @@ export async function startOrResumeConsultation(
       .run();
   }
 
+  // Seed the lawyer's expected actions from the appointment date. The track is always
+  // "all" on purpose: whether a case will end in mediation or in court is the DLAO's
+  // decision, and a system that predicted it would be inventing a legal outcome. The
+  // court- and mediation-specific steps exist in the plan for when that decision is
+  // actually recorded.
+  if (panelAssignmentId) {
+    const assignedAt = new Date().toISOString();
+    for (const action of actionsForTrack("all")) {
+      await db
+        .prepare(
+          `INSERT OR IGNORE INTO lawyer_action_log
+            (id, case_id, assignment_id, panel_lawyer_id, action_code, label_bn, due_at)
+           VALUES (?, ?, ?, ?, ?, ?, ?)`,
+        )
+        .bind(
+          rid("LAL"),
+          caseId,
+          panelAssignmentId,
+          input.panelLawyerId,
+          action.code,
+          action.labelBn,
+          deadlineFrom(assignedAt, action.days),
+        )
+        .run();
+    }
+  }
+
   await db
     .prepare(`UPDATE consultations SET case_id = ? WHERE id = ?`)
     .bind(caseId, consultationId)
@@ -269,5 +314,35 @@ export async function startOrResumeConsultation(
     decision: script.decision,
     script,
     created: true,
+    viewedAt: null,
+    lastSeq: 0,
+    completedAt: null,
   };
+}
+
+/**
+ * Records how far the applicant has actually seen the conversation.
+ *
+ * Kept apart from the transcript deliberately: this is presentation state and is
+ * allowed to be reset, whereas the transcript is the record. Written on a best-effort
+ * basis from the client, so a failure here must never fail the caller's request.
+ */
+export async function markConsultationViewed(
+  db: D1Database,
+  consultationId: string,
+  lastSeq: number,
+  completed: boolean,
+): Promise<void> {
+  await db
+    .prepare(
+      `UPDATE consultations
+       SET applicant_viewed_at = COALESCE(applicant_viewed_at, datetime('now')),
+           applicant_last_seq = MAX(applicant_last_seq, ?),
+           applicant_completed_at = CASE WHEN ? = 1
+             THEN COALESCE(applicant_completed_at, datetime('now'))
+             ELSE applicant_completed_at END
+       WHERE id = ?`,
+    )
+    .bind(Math.max(0, Math.trunc(lastSeq)), completed ? 1 : 0, consultationId)
+    .run();
 }

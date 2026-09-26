@@ -51,8 +51,19 @@ import {
   tagForSelection,
 } from "../lib/agent/knowledge/severity-classification";
 import { PROBLEM_CATEGORIES } from "../lib/legal/problem-taxonomy";
-import { assessLegalAidEligibility, MEANS_TEST_MONTHLY_BDT } from "../lib/case/legal-aid-eligibility";
+import {
+  assessLegalAidEligibility,
+  MEANS_TEST_MONTHLY_BDT,
+  type ApplicantFacts,
+} from "../lib/case/legal-aid-eligibility";
 import { buildConsultationScript, toBanglaDigits } from "../lib/case/consultation-script";
+import {
+  actionsForTrack,
+  deadlineFrom,
+  describeTracker,
+  gradeAction,
+  summariseTracker,
+} from "../lib/case/lawyer-tracker";
 import {
   assistVerdict,
   createAuditEntry,
@@ -460,6 +471,24 @@ console.log("legal aid eligibility — the three limbs of the stated rule");
   check("unknown income is not treated as insolvent", !unknown.grounds.some((g) => g.code === "financially_insolvent"));
   check("unasked questions are not counted as no", !unknown.grounds.some((g) => g.code === "unemployed"));
 
+  // The statute quoted must be the one the deciding ground engages. This caught a
+  // disability applicant being quoted the Digital Security Act because the act was
+  // chosen from the raw flags rather than from the basis.
+  for (const facts of [
+    { gender: "female", hasDisability: true, onlineAbuseAgainstWoman: true, categoryId: "cyber", subcategoryId: "y1" },
+    { gender: "female", traffickingRisk: true, categoryId: "cyber" },
+    { gender: "female", employed: false, onlineAbuseAgainstWoman: true, categoryId: "cyber", subcategoryId: "y1" },
+    { gender: "male", isChild: true, categoryId: "family" },
+    { gender: "male", hasDisability: true, categoryId: "cheque" },
+  ] as ApplicantFacts[]) {
+    const d = assessLegalAidEligibility(facts);
+    check(`act matches the basis (${d.basis})`, Boolean(d.act && d.basis), `${d.basis} / ${d.act?.en}`);
+  }
+  const dis = assessLegalAidEligibility({ gender: "female", hasDisability: true, onlineAbuseAgainstWoman: true, categoryId: "cyber" });
+  check("a disability decision quotes the disability act", /Disabilities/.test(dis.act.en), dis.act.en);
+  const onl = assessLegalAidEligibility({ gender: "female", employed: false, onlineAbuseAgainstWoman: true, categoryId: "cyber" });
+  check("an online-abuse decision quotes the Digital Security Act", /Digital Security/.test(onl.act.en), onl.act.en);
+
   // An unrecognised category still yields a statute to quote.
   const odd = assessLegalAidEligibility({ gender: "male", hasDisability: true, categoryId: "not_a_category" });
   check("an unknown category still resolves an act", Boolean(odd.act && odd.act.en.length > 0));
@@ -525,6 +554,50 @@ console.log("consultation script — deterministic and driven by the facts");
   for (const leak of ["woman_online_abuse", "decisive", "Severity", "Category A", "eligible"]) {
     check(`no internal identifier leaks: ${leak}`, !spoken.includes(leak));
   }
+}
+
+console.log("");
+console.log("lawyer tracker — the applicant can see whether the lawyer is behind");
+{
+  const assigned = "2026-09-01T00:00:00Z";
+  const plan = actionsForTrack("all");
+  check("the plan has real steps", plan.length >= 3, String(plan.length));
+  check("first contact is expected within days", (plan.find((a) => a.code === "first_contact")?.days ?? 99) <= 7);
+  check("every action has a Bangla label", plan.every((a) => a.labelBn.length > 4));
+  check("deadlines run from the appointment", deadlineFrom(assigned, 3).startsWith("2026-09-04"), deadlineFrom(assigned, 3));
+  check("the court steps are not on the default track", !plan.some((a) => a.code === "filed_in_court"));
+  check("the court track does carry them", actionsForTrack("court").some((a) => a.code === "filed_in_court"));
+
+  const now = new Date("2026-09-26T00:00:00Z");
+  const at = (code: string, due: string | null, done: string | null) =>
+    gradeAction({ code, labelBn: code, dueAt: due, doneAt: done, noteBn: null }, assigned, now);
+
+  check("a completed action is done", at("first_contact", "2026-09-04", "2026-09-03").state === "done");
+  check("a past deadline is overdue", at("first_contact", "2026-09-04", null).state === "overdue");
+  check("overdue reports how many days late", at("first_contact", "2026-09-04", null).daysRemaining === -22);
+  check("a distant deadline is pending", at("report_filed", "2026-10-16", null).state === "pending");
+  check("a deadline inside the window is due soon", at("docs_collected", "2026-09-28", null).state === "due_soon");
+  check("elapsed days since appointment is counted", at("first_contact", "2026-09-04", null).elapsedDays === 25);
+  check("a missing deadline reads as not applicable", at("first_contact", null, null).state === "na");
+
+  // A malformed row must not blank a citizen's page.
+  const junk = gradeAction({ code: "first_contact", labelBn: "x", dueAt: "not-a-date", doneAt: null, noteBn: null }, "also-not-a-date", now);
+  check("a malformed date does not throw", typeof junk.state === "string");
+  check("a malformed date is not counted as overdue", junk.state !== "overdue", junk.state);
+
+  const all = plan.map((a) => gradeAction({ code: a.code, labelBn: a.labelBn, dueAt: deadlineFrom(assigned, a.days), doneAt: null, noteBn: null }, assigned, now));
+  const sum = summariseTracker(all, assigned, now);
+  check("an untouched case is mostly overdue", sum.overdue >= 3, String(sum.overdue));
+  check("progress starts at zero", sum.progressPercent === 0, String(sum.progressPercent));
+  check("the worst step is named", sum.worst?.code === "first_contact", String(sum.worst?.code));
+  check("days since appointment is reported", sum.daysSinceAppointment === 25, String(sum.daysSinceAppointment));
+
+  const half = plan.map((a) => gradeAction({ code: a.code, labelBn: a.labelBn, dueAt: deadlineFrom(assigned, a.days), doneAt: a.code === "first_contact" ? "2026-09-02" : null, noteBn: null }, assigned, now));
+  const hs = summariseTracker(half, assigned, now);
+  check("one of four is a quarter done", hs.done === 1 && hs.progressPercent === 25, `${hs.done}/${hs.progressPercent}`);
+  check("the summary reads in plain Bangla", /দিন/.test(describeTracker(hs)), describeTracker(hs));
+  check("an overdue summary tells the applicant what to do first", /সবার আগে/.test(describeTracker(sum)));
+  check("no internal code leaks into the applicant text", !describeTracker(sum).includes("first_contact"));
 }
 
 if (failures.length) {

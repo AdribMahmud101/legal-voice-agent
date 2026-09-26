@@ -4,7 +4,11 @@ import { getD1SessionUser, type D1Database } from "@/lib/auth/d1-session";
 import { getLocalSessionUser } from "@/lib/auth/local-session";
 import { getProblemCategory } from "@/lib/legal/problem-taxonomy";
 import { isSensitiveClassification } from "@/lib/agent/knowledge/severity-classification";
-import { startOrResumeConsultation, type StartConsultationInput } from "@/lib/case/consultation-service";
+import {
+  markConsultationViewed,
+  startOrResumeConsultation,
+  type StartConsultationInput,
+} from "@/lib/case/consultation-service";
 import type { SessionUser } from "@/lib/auth/roles";
 
 export const runtime = "nodejs";
@@ -185,6 +189,10 @@ export async function POST(request: Request) {
     return NextResponse.json({
       ok: true,
       consultationId: result.consultationId,
+      // Resume position, and whether playback has ever reached the end. Only the
+      // latter closes the modal; a merely-started conversation still resumes.
+      lastSeq: result.lastSeq ?? 0,
+      completed: Boolean(result.completedAt),
       caseId: result.caseId,
       panelAssignmentId: result.panelAssignmentId,
       created: result.created,
@@ -195,5 +203,40 @@ export async function POST(request: Request) {
   } catch (err: unknown) {
     const message = err instanceof Error ? err.message : String(err);
     return NextResponse.json({ ok: false, error: message }, { status: 500 });
+  }
+}
+
+/**
+ * Records playback progress. Best-effort: the applicant watching their own callback is
+ * never allowed to fail because a progress ping did not land.
+ */
+export async function PATCH(request: Request) {
+  try {
+    const db = getDatabase();
+    if (!db) return NextResponse.json({ ok: false, error: "ডেটাবেস সাময়িকভাবে উপল্লব্ধ নয়।" }, { status: 503 });
+    const user = await getRequestUser(request, db);
+    if (!user) return NextResponse.json({ ok: false, error: "Unauthorized" }, { status: 401 });
+
+    const body = (await request.json().catch(() => ({}))) as {
+      consultationId?: string;
+      lastSeq?: number;
+      completed?: boolean;
+    };
+    if (!body.consultationId) {
+      return NextResponse.json({ ok: false, error: "consultationId required" }, { status: 400 });
+    }
+
+    // Scoped to the session, so a progress ping cannot be aimed at someone else's
+    // consultation.
+    const owned = await db
+      .prepare(`SELECT id FROM consultations WHERE id = ? AND citizen_user_id = ?`)
+      .bind(body.consultationId, user.id)
+      .first<{ id: string }>();
+    if (!owned) return NextResponse.json({ ok: false, error: "Unauthorized" }, { status: 403 });
+
+    await markConsultationViewed(db, body.consultationId, Number(body.lastSeq) || 0, body.completed === true);
+    return NextResponse.json({ ok: true });
+  } catch {
+    return NextResponse.json({ ok: true });
   }
 }

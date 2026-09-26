@@ -11,6 +11,7 @@
 import { CASE_STATUSES, type CaseStatus } from "@/lib/case/domain";
 import { assessLegalAidEligibility } from "@/lib/case/legal-aid-eligibility";
 import type { D1Database } from "@/lib/auth/d1-session";
+import { lawyerTrackerView, type LawyerTrackerView } from "./lawyer-tracker-view";
 
 export const STAGE_LABELS_BN: Record<CaseStatus, string> = {
   submitted: "আবেদন গৃহীত",
@@ -64,6 +65,8 @@ export interface CitizenCaseView {
     assignedAt: string;
   } | null;
   timeline: { stage: string; labelBn: string; note: string | null; at: string; byName: string | null }[];
+  /** Only present once a lawyer is appointed. */
+  tracker: LawyerTrackerView | null;
   updatedAt: string | null;
 }
 
@@ -188,6 +191,7 @@ export async function citizenCaseView(db: D1Database, citizenUserId: string): Pr
             assignedAt: row.assigned_at ?? row.updated_at ?? "",
           }
         : null,
+      tracker: await lawyerTrackerView(db, citizenUserId, row.case_id),
       timeline: history.results.map((h) => ({
         stage: h.to_stage,
         labelBn: STAGE_LABELS_BN[h.to_stage as CaseStatus] ?? h.to_stage,

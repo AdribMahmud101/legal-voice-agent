@@ -25,13 +25,13 @@ interface ConsultationResponse {
   error?: string;
   consultationId: string;
   caseId: string | null;
+  completed: boolean;
+  lastSeq: number;
   panelAssignmentId: string | null;
   dlao: { id: string | null; name: string };
   panelLawyer: { id: string; name: string | null } | null;
   script: ConsultationScript;
 }
-
-const SEEN_KEY = "dlas.consultation.seen";
 
 export default function ConsultationPanel({
   applicantName,
@@ -47,7 +47,11 @@ export default function ConsultationPanel({
   const [data, setData] = useState<ConsultationResponse | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [finished, setFinished] = useState(false);
-  const [dismissed, setDismissed] = useState(false);
+  // Server-recorded playback position, so a reload resumes instead of restarting.
+  const [lastSeq, setLastSeq] = useState(0);
+  // The completion ping must carry the newest turn, not whatever the render that
+  // closed the animation happened to have captured.
+  const lastSeqRef = useRef(0);
   // The explanation is what an applicant reads *before* the call. Once the call is
   // running it collapses to a one-line summary, because at 900px the full block
   // pushed the conversation and the verdict below the fold.
@@ -82,9 +86,16 @@ export default function ConsultationPanel({
         return;
       }
       setData(body);
+      lastSeqRef.current = body.lastSeq ?? 0;
+      setLastSeq(body.lastSeq ?? 0);
       setState("ready");
-      setOpen(true);
-      setFinished(false);
+      // The single most important line here. Auto-open only when the conversation has
+      // never reached the end: a reload mid-playback resumes where it stopped rather
+      // than restarting, and one that was finished or skipped stays closed behind the
+      // quiet "see it again" affordance. Keying this on "has begun" instead of "has
+      // finished" made an interrupted playback impossible to resume.
+      setOpen(!body.completed);
+      setFinished(Boolean(body.completed));
       // The case and the lawyer assignment exist from this moment, not when the
       // animation ends. Anything else on the page that reads the case was fetched
       // before this point and is holding a pre-consultation snapshot.
@@ -126,38 +137,45 @@ export default function ConsultationPanel({
     return () => window.removeEventListener("keydown", onKey);
   });
 
+  // Progress is best-effort. A failed ping must never interrupt playback, and the
+  // worst case of losing one is that a reload resumes a turn or two early.
+  const persistProgress = useCallback(
+    (seq: number, completed = false) => {
+      lastSeqRef.current = Math.max(lastSeqRef.current, seq);
+      setLastSeq(seq);
+      if (!data?.consultationId) return;
+      fetch("/api/portal/consultations", {
+        method: "PATCH",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ consultationId: data.consultationId, lastSeq: seq, completed }),
+      }).catch(() => undefined);
+    },
+    [data?.consultationId],
+  );
+
   const close = useCallback(() => {
     if (!finished) return;
     setOpen(false);
     // Also flip the flag in state, not just sessionStorage: it is seeded from
     // sessionStorage on mount, so dismissing without it left the panel returning null
     // and no way back in.
-    setDismissed(true);
-    try {
-      window.sessionStorage.setItem(SEEN_KEY, "1");
-    } catch {
-      /* private mode: the prompt simply shows again next visit */
-    }
   }, [finished]);
 
+  // Replaying is a deliberate act now, so it always starts from the beginning and
+  // does not leave the applicant stuck half-way again.
   const reopen = useCallback(() => {
+    lastSeqRef.current = 0;
+    setLastSeq(0);
     setOpen(true);
     setFinished(false);
   }, []);
 
-  // A quiet way back in after it has been dismissed, so closing is not a dead end.
-  useEffect(() => {
-    try {
-      setDismissed(window.sessionStorage.getItem(SEEN_KEY) === "1");
-    } catch {
-      setDismissed(false);
-    }
-  }, []);
+  if (state === "idle") return null;
 
-  if (state === "idle" && !dismissed) return null;
-
+  // Closed but already loaded: offer it back rather than silently swallowing it. This
+  // is the path a reload now takes, so it has to render the affordance.
   if (!open) {
-    if (!dismissed || !data) return null;
+    if (!data) return null;
     return (
       <div style={{ marginBottom: "var(--space-2xl)" }}>
         <button
@@ -335,10 +353,7 @@ export default function ConsultationPanel({
             </button>
             <button
               type="button"
-              onClick={() => {
-                setOpen(false);
-                setDismissed(true);
-              }}
+              onClick={() => setOpen(false)}
               style={{
                 font: "inherit",
                 fontFamily: "var(--font-bn)",
@@ -362,13 +377,16 @@ export default function ConsultationPanel({
           <>
             <ConsultationPlayer
               script={data.script}
+              startFromSeq={lastSeq}
               dlaoName={data.dlao.name}
               panelLawyerName={data.panelLawyer?.name ?? null}
               applicantName={applicantName}
               onFirstTurn={() => setExplainerOpen(false)}
+              onProgress={(seq) => persistProgress(seq, false)}
               onFinished={() => {
                 // Explicit only. Doing this automatically on completion remounted this
                 // subtree and restarted the animation.
+                persistProgress(lastSeqRef.current, true);
                 setFinished(true);
               }}
             />

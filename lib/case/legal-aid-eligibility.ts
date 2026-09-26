@@ -105,6 +105,17 @@ const ACTS: Record<string, { bn: string; en: string; section: string | null }> =
   general: { bn: "সাধারণ বিবিধ অভিযোগ", en: "General or miscellaneous petition", section: null },
 };
 
+/** The statute each deciding ground engages, so `act` always matches `basis`. */
+const ACT_FOR_BASIS: Record<string, { bn: string; en: string; section: string | null }> = {
+  trafficking_victim: ACTS.trafficking,
+  acid_attack_victim: ACTS.acid,
+  abused_woman_or_child: ACTS.violence,
+  destitute_abandoned_woman: ACTS.violence,
+  child: ACTS.violence,
+  person_with_disability: ACTS.disability,
+  woman_online_abuse: ACTS.cyber,
+};
+
 function actForCategory(categoryId: string | null | undefined) {
   if (!categoryId) return ACTS.general;
   return ACTS[categoryId] ?? ACTS.general;
@@ -280,24 +291,22 @@ export function assessLegalAidEligibility(facts: ApplicantFacts): EligibilityDec
   const decisive = grounds.find((g) => g.strength === "decisive") ?? null;
   const conditionalOnly = grounds.length > 0 && decisive === null;
   const eligible = decisive !== null;
+  const basis = decisive?.code ?? grounds[0]?.code ?? null;
 
-  const categoryId = facts.categoryId;
-  const act = facts.traffickingRisk
-    ? ACTS.trafficking
-    : facts.acidAttackVictim
-      ? ACTS.acid
-      : facts.physicallyAbused || facts.onlineAbuseAgainstWoman
-        ? ACTS.violence
-        : facts.hasDisability
-          ? ACTS.disability
-          : actForCategory(categoryId);
+  // The statute quoted must follow the ground that actually decided the case.
+  //
+  // It used to be picked from the raw flags, which could quote the Digital Security
+  // Act while the decision rested on her disability — an applicant reads that as the
+  // office having assessed the wrong thing. Deriving it from the basis makes the two
+  // impossible to disagree.
+  const act = ACT_FOR_BASIS[basis ?? ""] ?? actForCategory(facts.categoryId);
 
   const assuranceBn = buildAssurance(eligible, decisive, conditionalOnly, woman, facts);
 
   return {
     eligible,
     grounds,
-    basis: decisive?.code ?? grounds[0]?.code ?? null,
+    basis,
     basisBn: decisive?.bn ?? grounds[0]?.bn ?? "",
     act,
     assuranceBn,
