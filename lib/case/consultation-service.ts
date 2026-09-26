@@ -9,7 +9,7 @@
  */
 
 import { buildConsultationScript, type ConsultationScript } from "./consultation-script";
-import { actionsForTrack, deadlineFrom } from "./lawyer-tracker";
+import { seedLawyerActionPlan } from "./lawyer-assignment";
 import type { ApplicantFacts, EligibilityDecision } from "./legal-aid-eligibility";
 import type { D1Database } from "@/lib/auth/d1-session";
 
@@ -275,31 +275,16 @@ export async function startOrResumeConsultation(
       .run();
   }
 
-  // Seed the lawyer's expected actions from the appointment date. The track is always
-  // "all" on purpose: whether a case will end in mediation or in court is the DLAO's
-  // decision, and a system that predicted it would be inventing a legal outcome. The
-  // court- and mediation-specific steps exist in the plan for when that decision is
-  // actually recorded.
+  // The lawyer's expected actions are seeded from the appointment date. Shared with
+  // the manual assignment path so a DLAO's own appointment and an automatic one
+  // produce identical records.
   if (panelAssignmentId) {
-    const assignedAt = new Date().toISOString();
-    for (const action of actionsForTrack("all")) {
-      await db
-        .prepare(
-          `INSERT OR IGNORE INTO lawyer_action_log
-            (id, case_id, assignment_id, panel_lawyer_id, action_code, label_bn, due_at)
-           VALUES (?, ?, ?, ?, ?, ?, ?)`,
-        )
-        .bind(
-          rid("LAL"),
-          caseId,
-          panelAssignmentId,
-          input.panelLawyerId,
-          action.code,
-          action.labelBn,
-          deadlineFrom(assignedAt, action.days),
-        )
-        .run();
-    }
+    await seedLawyerActionPlan(db, {
+      caseId,
+      assignmentId: panelAssignmentId,
+      panelLawyerId: input.panelLawyerId!,
+      assignedAt: new Date().toISOString(),
+    });
   }
 
   await db

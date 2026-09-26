@@ -57,6 +57,7 @@ import {
   type ApplicantFacts,
 } from "../lib/case/legal-aid-eligibility";
 import { buildConsultationScript, toBanglaDigits } from "../lib/case/consultation-script";
+import { filterLawyers, rankLawyers, type LawyerSummary } from "../lib/case/lawyer-assignment";
 import {
   actionsForTrack,
   deadlineFrom,
@@ -598,6 +599,32 @@ console.log("lawyer tracker — the applicant can see whether the lawyer is behi
   check("the summary reads in plain Bangla", /দিন/.test(describeTracker(hs)), describeTracker(hs));
   check("an overdue summary tells the applicant what to do first", /সবার আগে/.test(describeTracker(sum)));
   check("no internal code leaks into the applicant text", !describeTracker(sum).includes("first_contact"));
+}
+
+console.log("");
+console.log("lawyer assignment — a DLAO can choose, and the choice is exclusive");
+{
+  const roster: LawyerSummary[] = [
+    { id: "a", name: "অ্যাডভোকেট আ", kind: "lawyer", barRegistration: "A-1", specialisations: "জমি", jurisdiction: "ঢাকা", phone: null, email: null, listStatus: "on_panel", activeAssignments: 3, overdueActions: 2, assignable: true },
+    { id: "b", name: "অ্যাডভোকেট ব", kind: "lawyer", barRegistration: "B-2", specialisations: "সাইবার", jurisdiction: "ঢাকা", phone: null, email: null, listStatus: "on_panel", activeAssignments: 0, overdueActions: 0, assignable: true },
+    { id: "c", name: "অ্যাডভোকেট স", kind: "lawyer", barRegistration: null, specialisations: null, jurisdiction: "সিলেট", phone: null, email: null, listStatus: "removed", activeAssignments: 0, overdueActions: 0, assignable: false },
+  ];
+
+  const ranked = rankLawyers(roster);
+  check("the least loaded assignable lawyer is offered first", ranked[0].id === "b", ranked[0].id);
+  check("someone off the panel never outranks someone on it", ranked[ranked.length - 1].id === "c", ranked[ranked.length - 1].id);
+  // Feeds the removed lawyer in first, so a sort that only looked at workload would
+  // leave them on top. Being idle must not buy a place ahead of an assignable lawyer.
+  check("idleness cannot promote a removed lawyer", rankLawyers([roster[2], roster[1]])[0].assignable === true);
+
+  check("search matches the name", filterLawyers(roster, "ব").map((r) => r.id).join() === "b");
+  check("search matches the bar number", filterLawyers(roster, "A-1").map((r) => r.id).join() === "a");
+  check("search matches the specialisation", filterLawyers(roster, "সাইবার").map((r) => r.id).join() === "b");
+  check("search matches the district", filterLawyers(roster, "সিলেট").map((r) => r.id).join() === "c");
+  check("search is case-insensitive", filterLawyers(roster, "a-1").length === 1);
+  check("an empty query returns everything", filterLawyers(roster, "   ").length === 3);
+  check("a query matching nothing returns nothing", filterLawyers(roster, "zzz").length === 0);
+  check("search does not mutate the roster", roster[0].id === "a" && roster.length === 3);
 }
 
 if (failures.length) {

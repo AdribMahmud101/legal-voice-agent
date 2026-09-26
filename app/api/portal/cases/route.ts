@@ -71,7 +71,18 @@ export async function GET(request: Request) {
     if (user.role === "citizen") {
       results = (await db.prepare(`${baseQuery} WHERE c.citizen_user_id = ? ORDER BY c.created_at DESC`).bind(user.id).all<PortalCaseRow>()).results;
     } else if (user.role === "panel_lawyer") {
-      results = (await db.prepare(`${baseQuery} WHERE c.assigned_lawyer_id = ? ORDER BY c.created_at DESC`).bind(user.id).all<PortalCaseRow>()).results;
+      // Via panel_assignments, not cases.assigned_lawyer_id. That column is a foreign
+      // key to the older users-based panel accounts, while the roster is
+      // panel_lawyers, so a lawyer appointed through the roster or through a DLAO's
+      // manual assignment would never have appeared in their own list.
+      results = (
+        await db
+          .prepare(
+            `${baseQuery} WHERE c.id IN (SELECT case_id FROM panel_assignments WHERE panel_lawyer_id = (SELECT id FROM panel_lawyers WHERE name_bn = ? LIMIT 1) AND status = 'active') ORDER BY c.created_at DESC`,
+          )
+          .bind(user.displayName)
+          .all<PortalCaseRow>()
+      ).results;
     } else {
       results = (await db.prepare(`${baseQuery} ORDER BY c.created_at DESC`).all<PortalCaseRow>()).results;
     }

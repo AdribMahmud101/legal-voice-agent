@@ -1,8 +1,9 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { DlaoShell, type DlaoTab } from "@/lib/ui/shell/DlaoShell";
+import DlaoLawyerAssignment from "@/components/dlao-lawyer-assignment";
 import type { PortalCase } from "@/lib/data/case-projection";
 
 const SLA_DAYS = 65;
@@ -63,14 +64,33 @@ export default function DlaoDashboard() {
   const pendingCount = cases.filter((item) => item.status === "pending_review").length;
   const caseCount = cases.filter((item) => item.status !== "pending_review").length;
   const panelCount = cases.filter((item) => item.status === "assigned").length;
+  const [reloadToken, setReloadToken] = useState(0);
+  useEffect(() => {
+    let cancelled = false;
+    fetch("/api/portal/cases")
+      .then((r) => r.json())
+      .then((data) => { if (!cancelled && data?.ok) setCases(data.cases); })
+      .catch(() => undefined);
+    return () => { cancelled = true; };
+  }, [reloadToken]);
+
+  const reload = useCallback(() => setReloadToken((n) => n + 1), []);
+
   const visibleCases = useMemo(() => getVisibleCases(cases, activeTab), [cases, activeTab]);
   const overdueCount = cases.filter((item) => getSlaState(item.applicationTime) === "overdue").length;
   const nearCount = cases.filter((item) => getSlaState(item.applicationTime) === "near").length;
 
   return (
     <DlaoShell activeTab={activeTab} onTabChange={setActiveTab} tabCounts={{ new: pendingCount, cases: caseCount, panel: panelCount }}>
-      <h1 className="dlao-page-heading">আবেদন</h1>
+      <h1 className="dlao-page-heading">
+        {activeTab === "lawyers" ? "আইনজীবী খুঁজুন ও নিয়োগ দিন" : "আবেদন"}
+      </h1>
 
+      {activeTab === "lawyers" ? (
+        <DlaoLawyerAssignment cases={cases} onAssigned={reload} />
+      ) : null}
+
+      {activeTab === "lawyers" ? null : (
       <section className="dlao-sla-alert" aria-label="SLA summary">
         <div className="dlao-sla-alert-header">
           <span className="dlao-sla-alert-icon" aria-hidden="true">!</span>
@@ -105,6 +125,7 @@ export default function DlaoDashboard() {
           )}
         </div>
       </section>
+      )}
     </DlaoShell>
   );
 }
