@@ -59,31 +59,42 @@ check("build-info.ts is committed with the change it names",
   !git("status", "--porcelain", "--", "lib/build-info.ts"),
   git("status", "--porcelain", "--", "lib/build-info.ts") || "clean");
 
-// Now the live site. The stamp is in the JS payload, not the HTML, so read the module.
-let live = "";
+// Now the live site, read the way a person reads it: the rendered footer.
+//
+// Reading `BUILD_SHA` out of a client chunk does not work — the constant is inlined and
+// minified, so a chunk scan finds nothing and the check silently SKIPs its most important
+// assertion. The stamp is rendered by `DlaoShell`, so the page is authenticated; the
+// one-click staff login is what the other console suites use.
+let live = "(unread)";
 try {
-  const res = await fetch(`${site}/_next/static/chunks/app/login/page.js`, { cache: "no-store" });
-  if (res.ok) live = (await res.text()).match(/BUILD_SHA\s*=\s*"([0-9a-f]{6,40})"/)?.[1] ?? "";
-  if (!live) {
-    // Fall back to any chunk that happens to carry it.
-    for (const p of ["/_next/static/chunks/app/dlao/page.js", "/_next/static/chunks/app/citizen/page.js"]) {
-      const r = await fetch(site + p, { cache: "no-store" });
-      if (r.ok) {
-        live = (await r.text()).match(/BUILD_SHA\s*=\s*"([0-9a-f]{6,40})"/)?.[1] ?? "";
-        if (live) break;
-      }
-    }
-  }
+  const { chromium } = await import("playwright-core");
+  const browser = await chromium.launch();
+  const page = await (await browser.newContext()).newPage();
+  await page.goto(site, { waitUntil: "networkidle" });
+  await page.evaluate(async () => {
+    await fetch("/api/portal/login", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      credentials: "include",
+      body: JSON.stringify({ role: "dlao" }),
+    });
+  });
+  await page.goto(`${site}/dlao`, { waitUntil: "networkidle" });
+  await page.waitForTimeout(1500);
+  const text = await page.evaluate(() => {
+    const el = [...document.querySelectorAll("span")].find((e) => /বিল্ড/.test(e.textContent || ""));
+    return el ? (el.textContent || "").replace(/\s+/g, " ").trim() : null;
+  });
+  await browser.close();
+  live = text?.match(/বিল্ড:\s*([0-9a-f]{6,40})/)?.[1] ?? "(not rendered)";
 } catch (err) {
-  check("the live site is reachable", false, String(err).slice(0, 80));
+  check("the live stamp is readable", false, String(err).slice(0, 90));
 }
 
-if (live) {
-  check("the deployed site stamps the current build", live === stamped || live === head, `live=${live} stamped=${stamped}`);
-} else {
-  // Not a failure on its own: the constant is compiled away in some chunk layouts. Say so
-  // plainly instead of pretending the check ran.
-  console.log("SKIP could not read BUILD_SHA from a client chunk (it may be inlined)");
+check("the live stamp is readable", live !== "(unread)" && live !== "(not rendered)", live);
+if (/^[0-9a-f]{6,40}$/.test(live)) {
+  check("the deployed site stamps the current build", live === stamped || live === head,
+    `live=${live} stamped=${stamped} head=${head}`);
 }
 
 const failed = results.filter((r) => !r).length;
