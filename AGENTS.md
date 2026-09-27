@@ -7,11 +7,13 @@ stamp in the page footer comes from `scripts/write-build-info.mjs`, which only `
 (and therefore only `npm run deploy`) runs. The bare `npx` command skips it, and a deploy done
 that way ships a footer reading a commit two versions old — which is precisely the stale-deploy
 signal the stamp exists to give. This happened once already. `node scripts/check-build-stamp.mjs`
-is **FREE** and fails if the stamp is more than one commit behind; run it after any deploy.
+is **FREE**, reads the rendered footer, and must pass 5/5 after any deploy.
 
-The stamp is generated *during* the build and committed *after* it, so a correct stamp always
-names the commit immediately before the one carrying `lib/build-info.ts`. That one-commit offset
-is expected, not a bug — do not "fix" it by amending, which invalidates the stamp it just wrote.
+**`lib/build-info.ts` is build output and is gitignored — do not commit it, and do not expect an
+offset.** It used to be committed, which made it self-invalidating: writing the stamp is itself a
+commit, so the served stamp always trailed HEAD by one no-op commit and read as deployment drift.
+The live stamp must therefore equal `git rev-parse --short HEAD` **exactly**. If a check ever
+seems to need a one-commit tolerance, that is the bug, not the tolerance.
 
 STT/TTS: Soniox only. TTS needs `Authorization: Bearer` on WS handshake (worker proxy handles it); keepalive `{"keep_alive":true}`/`{"type":"KeepAlive"}` every 20s; stale sockets handled by `speakWhenReady` in `lib/voice-sdk/direct/ws_tts.ts`.
 
