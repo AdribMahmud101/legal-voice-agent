@@ -25,7 +25,131 @@ type SeverityRule = {
   caseReference: string | null;
 };
 
-const SEVERITY_RULES: SeverityRule[] = [
+/**
+ * Additional surface forms per rule, so a caller is recognised by what they MEAN and not
+ * by whether they happened to use one of the exact phrases the spec was written in.
+ *
+ * Why this exists, concretely: the keyword lists held phrases like "ফোন ধরা যায় না" and
+ * "আমার হয়ে আবেদন". A real brother phrased it as "স্বামী ফোন দেখেন" and "তার হয়ে ফোন
+ * করেছি" — neither matched, so a domestic-violence report from a blind proxy caller was
+ * filed as "General Inquiry". The classifier was not weak, it was literal.
+ *
+ * This is a lexicon, not a hardcode: a concept (restricted contact, proxy reporting,
+ * altered images) lists many real ways of saying it, and the rule that already owns the
+ * concept still owns the severity, the factors and the legal basis. Nothing here decides
+ * an outcome on its own — it only widens what counts as speaking about that concept.
+ *
+ * Additive by design. Every original keyword still matches exactly as before, so widening
+ * the vocabulary cannot make a case LESS severe, only stop a case being missed.
+ */
+const SEVERITY_SYNONYMS: Record<string, string[]> = {
+  Physical_Abuse: [
+    "মারধর করেন", "মারধর করে", "মারধর করছে", "মারধর করছেন", "মারতে", "পেটাতে",
+    "মেরে", "মারা হয়েছে", "আঘাত করেন", "আঘাত করছে", "প্রহার", "চড় মারে", "থাপাড়",
+    "শারীরিক ক্ষতি", "শারীরিক নির্যাতন", "স্বামী মারে", "স্বামী আমাকে মারে",
+    "মারধর করার", "নির্যাতন করছে", "নির্যাতন করছেন", "বাড়ি থেকে বের করে",
+    "বাড়ি থেকে বের করে দিয়েছে", "বের করে দিয়েছে", "গালাগালি", "মারপাট",
+  ],
+  Restricted_Contact: [
+    "ফোন দেখে", "ফোন দেখেন", "ফোন চেক করে", "ফোন নজরে", "ফোন নজরদারি",
+    "ফোন ধরা যায় না", "ফোনে কথা বলতে পারে না", "ফোনে কথা বলতে পারি না",
+    "স্বামী নজরে", "ফোন নেওয়া হয়", "নিরাপদে কথা বলা যায় না", "নিরাপদ সময়",
+    "নিরাপদ সময়ে", "গোপন রাখতে হবে", "গোপন রাখতে হবে", "সতর্ক করবেন না",
+    "চুপচাপ", "গোপনে", "না দেখিয়ে", "পাশে না থেকে", "একা না থেকে",
+    "বাড়ির ফোন", "বাটন ফোন", "ফোন খরচ", "ফোন নেই", "সংকেতে যোগাযোগ",
+  ],
+  Incomplete_NID: [
+    "জাতীয় পরিচয়পত্র", "জাতীয় পরিচয়পত্র নেই", "পরিচয়পত্র নেই", "পরিচয়পত্র হারিয়ে",
+    "পরিচয়পত্র হারানো", "এনআইডি", "এনআইডি নেই", "এনআইডি কার্ড", "এনআইডি কার্ড পাইনি",
+    "এনআইডি হারিয়েছে", "পরিচয়পত্র অপ্রাপ্য", "পরিচয়পত্রের ফটো", "আধার কার্ড নেই",
+    "পরিচয়পত্র আছে না", "কাগজপত্র পাইনি", "কাগজপত্র নেই",
+  ],
+  Proxy_Applicant: [
+    "তার হয়ে", "তার হয়ে ফোন", "তার হয়ে আবেদন", "আমার বোনের হয়ে", "আমার বোনের পক্ষে",
+    "আমার মেয়ের হয়ে", "আমার মায়ের হয়ে", "আমার স্ত্রীর হয়ে", "তাঁর হয়ে",
+    "আমার পক্ষে", "পরিবারের সদস্য হিসেবে", "প্রতিনিধি", "প্রতিনিধির মাধ্যমে",
+    "অন্য কেউ আমার হয়ে", "নিজে ফোন করতে পারে না", "নিজে বলতে পারছে না",
+    "তার পক্ষে", "আমি এসেছি তার জন্য",
+  ],
+  Immediate_Safety_Concern: [
+    "নিরাপদ না", "নিরাপত্তা নেই", "সবচেয়ে বেশি ঝুঁকি", "ঝুঁকির মধ্যে",
+    "এখনই সাহায্য", "অতিরিক্ত", "শারীরিকভাবে", "শারীরিক আঘাত",
+  ],
+  Confinement: [
+    "বাইরে যেতে পারে না", "বাইরে যেতে দেয় না", "বন্ধ করে রেখেছে",
+    "আটকে রেখেছে", "ঘরে বন্ধ", "পালাতে পারছে না", "লুকিয়ে রেখেছে",
+  ],
+  Maintenance_Denial: [
+    "ভরণপোষণ দিচ্ছে না", "ভরণপোষণ দেয় না", "খরচ দেয় না", "পয়সা দেয় না",
+    "টাকা দেয় না", "খরচ দিতে অস্বীকার", "ভরণপোষণ বন্ধ",
+  ],
+  Dowry_Demand: [
+    "দাওয়াত চাইছে", "দাওয়াতের দাবি", "দাওয়াত", "গয়না চাইছে", "টাকা চাইছে বিয়ে",
+  ],
+  NonConsensual_Imagery: [
+    "অশ্লীল মেসেজ", "অশ্লীল ছবি", "অশ্লীল ছবি পাঠাচ্ছে", "ছবি বদলে", "ছবি বদলে সাজিয়ে",
+    "ছবি বদলে অশ্লীল", "নগ্ন ছবি", "ছবি ছড়িয়ে", "ছবি ছড়িয়ে দিচ্ছে", "অন্যদের কাছে",
+    "অনুমতি ছাড়া", "সম্মতি ছাড়া", "ভয় দিচ্ছে", "ভয় দিয়ে", "ভয় দেখাচ্ছে",
+    "হয়রানি করছে", "মেরে ফেলব", "প্রাণের আশঙ্কা", "ছবি পাঠাচ্ছে", "মেসেজ পাঠাচ্ছে",
+    "আমাকে ভয়", "ভয় পাচ্ছি", "খুব ভয়",
+  ],
+  Cyber_Harassment: [
+    "ভুয়া ছবি", "ভুয়া ছবি ছড়াচ্ছে", "ছবি ছড়াচ্ছে", "ছবি ছড়িয়ে", "ছবি অপব্যবহার",
+    "অশ্লীল মেসেজ", "অশ্লীল ছবি", "ছবি বদলে", "ছবি বদলে সাজিয়ে", "নাচিং করছে",
+    "সাইবার", "সাইবার নির্যাতন", "সাইবার বুলিং", "অনলাইনে হয়রানি", "অনলাইনে হয়রাজ",
+    "অনলাইনে ভয় দেখাচ্ছে", "অনলাইনে প্রতারণা", "ফেসবুকে হয়রাজ", "ফেসবুকে",
+    "ব্ল্যাকমেইল", "হ্যাক", "পাসওয়ার্ড", "ভয় দিচ্ছে", "ভয় দেখাচ্ছে", "হয়রানি করছে",
+    "ছবি পাঠাচ্ছে", "মেসেজ পাঠাচ্ছে", "অনলাইনে ছড়িয়ে",
+  ],
+  Land_Grabbing_Forged_Deed: ["জমি দখল", "দখল করে", "দখল করেছে", "জমি চুরি", "সরকারি জমি", "জমি দখল করেছে"],
+  Property_Transfer_Dispute: [
+    "জমি নিয়ে", "জমির দলিল", "দলিল নিয়ে", "সম্পত্তি বিরোধ", "সম্পত্তি নিয়ে",
+    "জমি সমস্যা", "জমির মালিকানা", "দখলের দলিল", "ভুয়া দলিল",
+  ],
+  Inheritance_Succession: [
+    "উত্তরাধিকার", "উত্তরাধিকার বিরোধ", "উইল্ট", "উইল করে", "মৃত্যুর পর সম্পত্তি",
+    "মরা ব্যক্তির সম্পত্তি", "ভাগ করে", "ভাগের দাবি", "ওয়ারিশ",
+  ],
+  Labour_Dispute: [
+    "মজুরি দেয়নি", "বেতন দেয়নি", "বেতন দেয় না", "মজুরি দেয় না", "চাকরি থেকে বের",
+    "কাজ থেকে বের করে", "ভাড়ায় দেওয়া টাকা", "ভাড়ার টাকা", "বকেয়া", "কাজের দাবি",
+  ],
+  Case_Delay_Or_Inactivity: [
+    "সাত মাস ধরে", "মাসের পর মাস", "কোনো খবর পাইনি", "খবর পাইনি", "আপডেট পাইনি",
+    "আইনি নিষ্ক্রিয়", "অগ্রসর হচ্ছে না", "অপেক্ষমাণ", "দেরিতে", "আটকে আছে",
+    "উত্তর পাচ্ছি না", "কোনো ব্যবস্থা হয়নি",
+  ],
+  Priority_Disability: [
+    "প্রতিবন্ধী", "বিশেষ চাহিদা", "সহায়তা চাই", "অসুবিধা", "প্রতিবন্ধকতা",
+  ],
+  PWD_Visual: [
+    "দৃষ্টিহীন", "দৃষ্টি নেই", "চোখে দেখতে পাই না", "অন্ধ", "পড়তে পারি না",
+    "পড়তে পারি না", "ফরম পড়তে পারি না", "পিডিএফ", "স্ক্রিনরিডার", "ক্যাপচা",
+    "ভিজ্যুয়াল ওটিপি", "দেখে লিখতে", "দেখতে না পেয়ে", "অন্ধত্ব", "বধির",
+  ],
+  Case_Access_Barrier: [
+    "আছে না", "পাওয়া যায় না", "নেই বলে", "করতে পারছে না", "সমস্যা হচ্ছে",
+    "সুবিধা নেই", "বাধা", "অসুবিধা হচ্ছে", "পারছে না", "পারে না",
+  ],
+  Civil_Injunction: ["নিষেধাজ্ঞা", "স্থায়ী আদেশ", "থামতে বলা", "আদেশ দিতে"],
+  Cheque_Dishonour: ["চেক", "চেক bounce", "চেক ফেরত", "বাউন্স", "চেক ডিসকান্ট"],
+  Child_Custody: ["সন্তানের অভিভাবকত্ব", "সন্তান দেখতে দেয় না", "সন্তান দেখাচ্ছে না", "হেফাজাত"],
+  Divorce_Muslim_Law: ["তালাক", "ডিভোর্স", "বিচ্ছেদ"],
+  Trafficking_Risk: ["পাচার", "বেচাই", "ক্রাড", "বাস্তবিক সন্তানা"],
+};
+
+/**
+ * Every surface form a rule answers to: its own spec keywords plus the lexicon above.
+ * Unrecognised tags simply contribute nothing, so a new rule works without a lexicon entry.
+ */
+function surfaceForms(rule: SeverityRule): string[] {
+  return [...rule.keywords, ...(SEVERITY_SYNONYMS[rule.tag] ?? [])];
+}
+
+// Exported so the rules can be inspected by a test without reaching into the module's
+// internals. Reading the keyword lists is the only way to tell "the text is wrong" apart
+// from "the rule is missing a phrase", which are very different bugs to fix.
+export const SEVERITY_RULES: SeverityRule[] = [
   {
     tag: "Immediate_Safety_Concern",
     tagBn: "তাৎক্ষণিক নিরাপত্তা উদ্বেগ",
@@ -185,10 +309,36 @@ const SEVERITY_RULES: SeverityRule[] = [
     tagBn: "সাইবার ব্ল্যাকমেইল বা অনলাইন নির্যাতন",
     category: "Labor, Cyber & Specialized Rights",
     categoryBn: "শ্রম, সাইবার ও বিশেষ অধিকার",
+    // Deliberately "high", NOT emergency. Cyber is Category D in the spec, and
+    // test-case-rules asserts that y2/y3/y5/y8 stay Category D and are not sensitive.
+    // Raising this rule to emergency broke exactly that. The genuinely urgent part of
+    // cyber — non-consensual imagery and threats — is `NonConsensual_Imagery` below, and
+    // the taxonomy route for y1/y4 already went to Severe_Violence_NariOShishu.
     severity: "high",
     keywords: ["ব্ল্যাকমেইল", "ফেসবুকে হয়রাজ", "ভুয়া ছবি", "ছবি ছড়াচ্ছে", "অনলাইনে ভয় দেখাচ্ছে", "সাইবার নির্যাতন", "ছবি অপব্যবহার", "সাইবার বুলিং", "সাইবার", "অনলাইনে হয়রানি", "অনলাইনে ব্ল্যাকমেইল", "ভুয়া প্রোফাইল", "হ্যাক", "মোবাইল ব্যাংকিং", "সাইবার নিরাপত্তা", "অনলাইনে প্রতারণা"],
     factors: ["Immediate Physical Safety Risk", "Legal Merit & Time Sensitivity"],
     legalBasis: ["Cyber Security Frameworks", "Cross-agency referral protocol"],
+    caseReference: "Nabila",
+  },
+  {
+    // The urgent slice of cyber, split out so raising it does not drag all of Category D
+    // up with it. Non-consensual imagery plus a threat is an ongoing, spreading harm, which
+    // the spec treats as Category A and which must be role-restricted — and brief A3
+    // requires the urgency to be surfaced rather than filed as routine. A caller
+    // describing it in words previously landed on Cyber_Harassment ("high", not
+    // sensitive), so the evidence stayed visible to staff who must not see it.
+    tag: "NonConsensual_Imagery",
+    tagBn: "সম্মতিহীন ছবি বা অনলাইন ভয়",
+    category: "Immediate Crisis & Safety",
+    categoryBn: "তাৎক্ষণিক নিরাপত্তা ঝুঁকি",
+    severity: "emergency",
+    keywords: [
+      "অশ্লীল ছবি", "অশ্লীল মেসেজ", "নগ্ন ছবি", "ছবি বদলে", "ছবি বদলে সাজিয়ে",
+      "অনুমতি ছাড়া ছবি", "সম্মতি ছাড়া", "ভয় দিয়ে", "ভয় দিচ্ছে", "হয়রানি করছে",
+      "মেরে ফেলব", "প্রাণের আশঙ্কা", "ছবি ছড়িয়ে", "অন্যদের কাছে",
+    ],
+    factors: ["Immediate Physical Safety Risk", "Applicant Vulnerability & Isolation"],
+    legalBasis: ["Digital Security Act, 2018", "Cross-agency referral protocol"],
     caseReference: "Nabila",
   },
   {
@@ -419,7 +569,9 @@ export function classifySeverity(
   selection?: SeveritySelection,
 ): SeverityClassification {
   const text = normalizeText(input);
-  const byKeyword = SEVERITY_RULES.filter((rule) => rule.keywords.some((keyword) => text.includes(normalizeText(keyword))));
+  const byKeyword = SEVERITY_RULES.filter((rule) =>
+    surfaceForms(rule).some((keyword) => text.includes(normalizeText(keyword))),
+  );
   const personalContext = hasPersonalProblemContext(text);
   const crisisContext = hasCrisisContext(text);
 

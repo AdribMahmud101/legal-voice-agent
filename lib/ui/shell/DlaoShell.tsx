@@ -7,7 +7,17 @@ import { useState, type ReactNode } from "react";
 import { AgentFab } from "./AgentFab";
 import BuildStamp from "@/components/build-stamp";
 
-export type DlaoTab = "applications" | "new" | "cases" | "panel" | "hearing" | "online" | "lawyers" | "reports";
+export type DlaoTab =
+  | "applications"
+  | "new"
+  | "cases"
+  | "panel"
+  | "mediation"
+  | "calendar"
+  | "hearing"
+  | "online"
+  | "lawyers"
+  | "reports";
 
 interface DlaoShellProps {
   children: ReactNode;
@@ -19,6 +29,7 @@ interface DlaoShellProps {
     new: number;
     cases: number;
     panel: number;
+    mediation?: number;
   };
 }
 
@@ -27,7 +38,11 @@ const TABS: Array<{ id: DlaoTab; label: string }> = [
   { id: "new", label: "নতুন আবেদন" },
   { id: "cases", label: "কেস" },
   { id: "panel", label: "প্যানেল বিবরণ" },
-  { id: "hearing", label: "শনি" },
+  { id: "mediation", label: "মধ্যস্থতা" },
+  { id: "calendar", label: "ক্যালেন্ডার" },
+  // "শনি" was a typo for "শুনানি" and there is no hearing column in the schema, so
+  // this tab has always rendered an empty queue. It stays for now but says what it is.
+  { id: "hearing", label: "শুনানি" },
   { id: "online", label: "ওনলি" },
   { id: "lawyers", label: "প্যানেল অ্যাডভোকেটী" },
   { id: "reports", label: "প্রতিবেদন" },
@@ -119,7 +134,12 @@ export function DlaoShell({ children, activeTab, onTabChange, tabCounts, role }:
             </Link>
           ) : null}
           {TABS.map((tab) => {
-            const count = tab.id === "new" ? tabCounts?.new : tab.id === "cases" ? tabCounts?.cases : tab.id === "panel" ? tabCounts?.panel : undefined;
+            const count =
+              tab.id === "new" ? tabCounts?.new
+              : tab.id === "cases" ? tabCounts?.cases
+              : tab.id === "panel" ? tabCounts?.panel
+              : tab.id === "mediation" ? tabCounts?.mediation
+              : undefined;
             return (
               <button
                 key={tab.id}

@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
-import { PERSONAS, type Persona, type PersonaId } from "@/lib/demo/personas";
+import { PERSONAS, DEMO_GROUPS, getPersona, type Persona, type PersonaId } from "@/lib/demo/personas";
 
 /**
  * The one-click surface for Part A of the brief.
@@ -117,51 +117,81 @@ export function PersonaSwitcher({ activePersonaId = null, variant = "full", clas
   if (variant === "compact") {
     return (
       <div className={className} style={{ display: "flex", flexDirection: "column", gap: "var(--space-sm)" }}>
-        <div style={{ display: "flex", flexWrap: "wrap", gap: "var(--space-sm)" }}>
-          {PERSONAS.map((persona) => {
-            const tint = ACCENT_TINTS[persona.id];
-            const isActive = persona.id === activePersonaId;
-            const isPending = persona.id === pendingId;
+        <div style={{ display: "grid", gap: "var(--space-sm)", gridTemplateColumns: "repeat(auto-fit, minmax(210px, 1fr))" }}>
+          {DEMO_GROUPS.map((group) => {
+            const members = group.personas
+              .map((id) => getPersona(id))
+              .filter((p): p is Persona => Boolean(p));
+            const isPending = members.some((p) => p.id === pendingId);
+            const isActive = members.some((p) => p.id === activePersonaId);
+            // A merged group is one story, so it is one button. The first persona's tint
+            // leads and both codes are shown, so a judge can still see A1 and A2 are in it.
+            const tint = ACCENT_TINTS[members[0]?.id ?? "moyuri"];
+            const codes = members.map((p) => p.code).join("+");
+
+            const inner = (
+              <>
+                <span style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                  <span
+                    aria-hidden="true"
+                    style={{
+                      fontSize: "0.625rem",
+                      fontWeight: 700,
+                      background: tint.fg,
+                      color: "#fff",
+                      borderRadius: "var(--radius-full)",
+                      padding: "2px 6px",
+                    }}
+                  >
+                    {codes}
+                  </span>
+                  <span style={{ fontFamily: "var(--font-bn)", fontSize: "0.875rem", fontWeight: 700, color: "var(--portal-text, #0f172a)" }}>
+                    {group.labelBn}
+                  </span>
+                </span>
+                <span style={{ fontFamily: "var(--font-bn)", fontSize: "0.6875rem", color: "var(--portal-text-secondary, #64748b)", lineHeight: 1.5 }}>
+                  {group.hintBn}
+                </span>
+              </>
+            );
+
+            const style: React.CSSProperties = {
+              display: "flex",
+              flexDirection: "column",
+              alignItems: "flex-start",
+              gap: 4,
+              textAlign: "left",
+              textDecoration: "none",
+              padding: "10px 12px",
+              minHeight: "var(--touch-min, 2.75rem)",
+              borderRadius: "var(--radius-md)",
+              border: `1.5px solid ${isActive ? tint.fg : "var(--portal-border, #e2e8f0)"}`,
+              background: isActive ? tint.bg : "var(--portal-white, #fff)",
+              cursor: isPending ? "wait" : "pointer",
+              opacity: isPending ? 0.6 : 1,
+              transition: "all var(--transition-fast)",
+            };
+
+            // A group with a startUrl is a call to WATCH, so it navigates. A group without
+            // one is a portal to look at, so it signs in.
+            if (group.startUrl) {
+              return (
+                <a key={group.id} href={group.startUrl} style={style} aria-label={`${group.labelBn} — সিমুলেশন শুরু করুন`}>
+                  {inner}
+                </a>
+              );
+            }
             return (
               <button
-                key={persona.id}
+                key={group.id}
                 type="button"
-                onClick={() => loginAs(persona)}
+                onClick={() => loginAs(members[0])}
                 disabled={isPending}
                 aria-busy={isPending || undefined}
-                aria-label={`${persona.nameBn} হিসেবে লগইন করুন (${persona.code})`}
-                style={{
-                  display: "flex",
-                  alignItems: "center",
-                  gap: 8,
-                  padding: "8px 12px",
-                  minHeight: "var(--touch-min)",
-                  borderRadius: "var(--radius-full)",
-                  border: `1.5px solid ${isActive ? tint.fg : "var(--portal-border)"}`,
-                  background: isActive ? tint.bg : "var(--portal-white)",
-                  color: isActive ? tint.fg : "var(--portal-text)",
-                  fontFamily: "var(--font-bn)",
-                  fontSize: "0.8125rem",
-                  fontWeight: 600,
-                  cursor: isPending ? "wait" : "pointer",
-                  opacity: isPending ? 0.6 : 1,
-                  transition: "all var(--transition-fast)",
-                }}
+                aria-label={`${group.labelBn} হিসেবে লগইন করুন`}
+                style={style}
               >
-                <span
-                  aria-hidden="true"
-                  style={{
-                    fontSize: "0.625rem",
-                    fontWeight: 700,
-                    background: tint.fg,
-                    color: "#fff",
-                    borderRadius: "var(--radius-full)",
-                    padding: "2px 6px",
-                  }}
-                >
-                  {persona.code}
-                </span>
-                {persona.nameBn}
+                {inner}
               </button>
             );
           })}

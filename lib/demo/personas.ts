@@ -421,3 +421,62 @@ export function personaForUserId(userId: string | null | undefined): Persona | n
 export function isPersonaId(value: unknown): value is PersonaId {
   return typeof value === "string" && PERSONA_BY_ID.has(value);
 }
+
+/**
+ * How the login panel groups the cast.
+ *
+ * A1 and A2 are deliberately ONE entry, not two. Moyuri is the survivor and Ripon is the
+ * brother who calls on her behalf — but the brief spends two rows on them because they
+ * are one situation, and offering them as two independent login buttons invites a judge to
+ * read them as two unrelated demos. The brief is explicit that the personas are MANDATORY
+ * and not alternatives; merging the pair is the same idea applied to the UI.
+ *
+ * A group with a `startUrl` NAVIGATES rather than logging in, because that is what the
+ * pair actually is: a scripted call to watch. A group without one logs in as its single
+ * persona, which is the right affordance for a case that has a dashboard of its own.
+ *
+ * This lives beside the personas rather than in the component, so the login panel, the
+ * simulation picker and the spec page cannot disagree about who is grouped with whom.
+ */
+export interface DemoGroup {
+  id: string;
+  labelBn: string;
+  labelEn: string;
+  personas: PersonaId[];
+  /** Present means: open the simulation instead of signing in. */
+  startUrl?: string;
+  /** The one line that says what pressing it does. */
+  hintBn: string;
+}
+
+export const DEMO_GROUPS: DemoGroup[] = [
+  {
+    id: "moyuri-ripon",
+    labelBn: "মোয়ূরী ও রিপন",
+    labelEn: "Moyuri & Ripon",
+    personas: ["moyuri", "ripon"],
+    startUrl: "/demo/simulation?scenario=moyuri-ripon",
+    hintBn: "ভাই প্রতিনিধি হয়ে কল — সিমুলেশন দেখুন",
+  },
+  {
+    id: "nabila",
+    labelBn: "নাবিলা",
+    labelEn: "Nabila",
+    personas: ["nabila"],
+    hintBn: "ভুয়া ছবি ও জরুরি শ্রেণি — পোর্টালে ঢুকুন",
+  },
+  {
+    id: "nuching",
+    labelBn: "নুচিং মারমা",
+    labelEn: "Nuching Marma",
+    personas: ["nuching"],
+    hintBn: "মারমা ভাষা ও সহায়তাকারী — পোর্টালে ঢুকুন",
+  },
+  {
+    id: "malek",
+    labelBn: "আব্দুল মালেক",
+    labelEn: "Abdul Malek",
+    personas: ["malek"],
+    hintBn: "সাত মাসের নিষ্ক্রিয় মামলা — পোর্টালে ঢুকুন",
+  },
+];

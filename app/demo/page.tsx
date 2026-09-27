@@ -64,6 +64,46 @@ export default function DemoScenariosPage() {
 
         <PersonaSwitcher />
 
+        <div
+          style={{
+            border: "1.5px solid var(--portal-accent, #15803d)",
+            borderRadius: "var(--radius-lg, 14px)",
+            background: "var(--portal-accent-subtle, #f0fdf4)",
+            padding: "var(--space-lg, 20px)",
+            display: "flex",
+            flexDirection: "column",
+            gap: "var(--space-sm, 8px)",
+          }}
+        >
+          <strong style={{ fontFamily: "var(--font-bn)", fontSize: "1rem", color: "var(--portal-text, #0f172a)" }}>
+            সিমুলেশন মোড
+          </strong>
+          <p style={{ fontFamily: "var(--font-bn)", fontSize: "0.875rem", color: "var(--portal-text-secondary, #475569)", margin: 0, lineHeight: 1.7 }}>
+            ১৬৬৯৯-এর ভয়েস কথোপকথনটি ধাপে ধাপে দেখুন — কলকারীর কথা থেকে শ্রেণিবিভাগ, নিরাপদ সময়ের ১৫ মিনিট, কর্মকর্তার
+            অনুস্মারক এবং মধ্যস্থতা নির্ধারণ পর্যন্ত। শ্রেণিবিভাগটি আসল ইঞ্জিন করে, কোথাও লেখা নেই।
+          </p>
+          <Link
+            href="/demo/simulation"
+            style={{
+              alignSelf: "flex-start",
+              marginTop: "var(--space-xs, 4px)",
+              background: "var(--portal-accent, #15803d)",
+              color: "var(--portal-text-on-accent, #fff)",
+              textDecoration: "none",
+              borderRadius: "var(--radius-md, 8px)",
+              padding: "0 18px",
+              minHeight: "var(--touch-min, 2.75rem)",
+              display: "inline-flex",
+              alignItems: "center",
+              fontFamily: "var(--font-bn)",
+              fontWeight: 700,
+              fontSize: "0.9375rem",
+            }}
+          >
+            সিমুলেশন চালু করুন
+          </Link>
+        </div>
+
         <footer style={{ borderTop: "1px solid var(--portal-border)", paddingTop: "var(--space-lg)" }}>
           <Link
             href="/login"

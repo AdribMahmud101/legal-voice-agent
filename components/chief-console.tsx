@@ -194,6 +194,8 @@ const AUDIT_KIND_LABELS: Record<string, string> = {
   "payment.approved": "পেমেন্ট অনুমোদন",
   "mediation.scheduled": "মধ্যস্থতা নির্ধারিত",
   "settlement.certified": "নিষ্পত্তি প্রত্যায়িত",
+  "settlement.signed": "নিষ্পত্তিতে স্বাক্ষর",
+  "settlement.drafted": "নিষ্পত্তির প্রস্তাবি",
   "message.queued": "বার্তা সারিবদ্ধ",
   "message.blocked": "বার্তা ব্লক",
   "admin.audit_viewed": "অডিট দেখা",

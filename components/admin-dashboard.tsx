@@ -92,6 +92,8 @@ const KIND_BN: Record<string, string> = {
   "payment.approved": "পরিশোধ অনুমোদন",
   "mediation.scheduled": "মধ্যস্থতা নির্ধারণ",
   "settlement.certified": "সালিশ সনদ",
+  "settlement.signed": "সালিশে স্বাক্ষর",
+  "settlement.drafted": "সালিশ সনদ প্রস্তুত",
   "message.queued": "বার্তা পাঠানো হয়েছে",
   "message.blocked": "বার্তা আটকে দেওয়া হয়েছে",
   "admin.audit_viewed": "অডিট দেখা হয়েছে",

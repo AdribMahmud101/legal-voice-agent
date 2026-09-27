@@ -383,3 +383,106 @@ Two failures that look identical from the caller's seat but are not the same bug
 - `scripts/verify_persona_demo_login.mjs` is **FREE** (no call, no STT/TTS, no LLM).
   It checks the spec page, one click per persona, cross-persona isolation, and that
   re-login does not duplicate cases. Confirmed free by the AGENTS.md grep.
+
+## ADR, the DLAO calendar, and the safe-contact window
+
+- `mediations` and `mediator_requests` existed since 0016 with every column ADR needs and
+  **nothing ever wrote to them** — the whole scheduling system was greenfield. The first
+  writer is `POST /api/portal/mediations`, and it is deliberately absent from
+  `worker-entry.ts`'s intercept table so one implementation runs under the Worker and
+  `next dev`. The path is `/api/portal/*` rather than `/api/dlao/*` to match the existing
+  DLAO surface.
+- **The booking gate is the important part.** The mandatory-mediation rule, the
+  appellate/labour carve-out and the already-settled case were all written in
+  `caseActionState` and then never consulted on the write path — `assignPanelLawyer` moved
+  a case to `lawyer` without asking. `bookingVerdict` in `lib/case/mediation.ts` is now the
+  single gate, and both the button and the endpoint call it, so a green button can never be
+  a red response.
+- `caseFactsFromCase` normalises status before calling the rules, and **fails closed**. Two
+  vocabularies coexist: `CASE_STATUSES` is `submitted|review|mediation|lawyer|court|
+  settled|unresolved` and `isClosed` knows only `settled`/`unresolved`, but the portal side
+  also writes `resolved`, `closed`, `rejected`, `under_review`, and `mapPortalCase` rewrites
+  `submitted` to `pending_review`. Feeding those through made a **closed case read as open**
+  and the gate let it through. Anything unrecognised maps to `unresolved` on purpose.
+- **All date logic is Bangladesh Standard Time (fixed UTC+6, no DST)**, never the runtime's
+  local zone, in `lib/case/mediation.ts` and `lib/case/safe-window.ts`. This is not
+  theoretical: the Worker renders in UTC and the browser in UTC+6, so `getDay()` disagreed
+  for six hours a day. Two real bugs came out of it — the server rendered *last week's*
+  cause list, and it **accepted a Friday mediation booking** because 2026-10-02 is 18:00
+  Thursday in UTC. A five-day working week is a legal fact about Bangladesh, so it has to be
+  evaluated in Bangladesh terms.
+- The safe window is **data, not prose**. 0030 recorded "শুক্রবার সকাল ১০টা থেকে বিকাল ২টা"
+  in `safe_profiles.safe_window_bn`, which no code could read — and four hours is not the
+  fifteen minutes the brief asks for. `migrations/0032_safe_window.sql` adds
+  `window_start` / `window_end` / `window_days`; Moyuri is 11:00-11:15 daily on the working
+  week. A malformed window returns **no window** rather than defaulting to office hours,
+  because opening a survivor's contact hours by accident is the failure that matters.
+- The DLAO's reminder is a `message_outbox` row with `rule='window'` and `deferred_until`
+  set to the next opening — the table already models `allow`/`window`/`block`, so a reminder
+  is just an outbound message held until the window opens. No reminders table was invented.
+  The row's `to_bn` is deliberately NULL and the channel is `portal`: the reminder is a task
+  for the OFFICER, and this path must never write the survivor's number into an outbound
+  queue. `deferred_until` is written in **local BDT**, not UTC — 11:00 BDT is 05:00 UTC, and
+  a UTC-based formatter would have fired the reminder six hours early.
+- `safe_contact_destinations.rule='block'` is seeded with the husband's number, so the
+  brief's failure test ("an unsafe person answers the phone") lands on a real row rather
+  than a sentence in a comment.
+- The DLAO dashboard's local `SLA_DAYS = 65` is gone. It agreed with nothing — the real
+  clocks are 15 days review, 60 mediation, 10 payment — and a badge that disagrees with the
+  rule it claims to enforce is worse than no badge. It now calls `assessSla` /
+  `daysInStageTone`. The duplicate `fetch("/api/portal/cases")` (one on mount, one on
+  `reloadToken`, racing each other) is now one effect. The `hearing` and `online` tabs have
+  no data source at all — there is no hearing-date column in the schema — so they say so
+  instead of rendering an empty queue under a confident heading.
+- `mediations` is repeatable, one row per attempt, because the lawyer gate reads the LAST
+  outcome — that is what separates `medLate` from `needFailedMed`. A failed attempt moves
+  the case back to `review`; a settled one opens the `settlements` row so the Chief console
+  has a real three-party certification to act on.
+
+## AI drafting the settlement — and why the gaps are the feature
+
+- `lib/case/settlement-draft.ts` returns a draft as **clauses with sources**, not a wall of
+  text, so a judge can watch the system assemble an agreement out of a record. It is
+  extractive and rule-based, not a language model — the right tool, because every sentence
+  must be traceable to a row.
+- **A clause with no source is not filled in.** The opposite party is deliberately never
+  named: the intake is one-sided by design, because a survivor describing her own situation
+  has not supplied the other side's details. The operative terms, the deadline and the
+  enforcement clause come back `open` with a question to the parties, and `readyToSign` is
+  false. A settlement is an enforceable instrument, so an invented maintenance amount or
+  handover date would manufacture a dispute nobody agreed to.
+- `settlements.decree` is only ever written by the drafter or the Chief's certification
+  flow. An earlier version accepted a client-supplied `body.decree`, which let any caller
+  replace an enforceable agreement with arbitrary text and bypass that guarantee; the field
+  is gone from the request body.
+- Three-party signing reuses `certificationState` from `domain.ts`, so the panel can never
+  disagree with the Chief's certify button, and one click can never certify alone.
+- Free checks: `npm run test:settlement-draft` (24), `npm run test:safe-window` (32),
+  `npm run test:simulations` (21), and `scripts/verify_dlao_adr.mjs` (19, Playwright).
+  None place a call or touch STT/TTS/LLM.
+
+## Recognition is a lexicon, not a literal match
+
+- `classifySeverity` matched **exact phrases**, which is a rigid hardcoded system wearing a
+  smart name. The keyword lists held "ফোন ধরা যায় না" and "আমার হয়ে আবেদন"; a real brother
+  said "স্বামী ফোন দেখেন" and "তার হয়ে ফোন করেছি", so a **domestic-violence report from a
+  blind proxy caller filed as "General Inquiry"**. `SEVERITY_SYNONYMS` adds many real ways of
+  saying each concept, and `surfaceForms()` unions them with the spec keywords.
+- Additive by construction: every original keyword still matches exactly as before, so
+  widening the vocabulary can only stop cases being missed, never make one less severe.
+  Moyuri's proxy line now fires five tags from ordinary speech —
+  `Physical_Abuse, Restricted_Contact, Proxy_Applicant, Incomplete_NID, Case_Access_Barrier`
+  — and lands on `emergency`, which is sensitive, which is what restricts the evidence.
+- `SEVERITY_RULES` is now exported so the keyword lists can be read by a test. That is the
+  only way to tell "the text is wrong" from "the rule is missing a phrase", which are very
+  different bugs.
+- **Do not raise `Cyber_Harassment` to `emergency`.** The spec makes cyber Category D and
+  `test-case-rules` asserts y2/y3/y5/y8 stay Category D and are not sensitive. The urgent
+  slice is the separate `NonConsensual_Imagery` rule, and the taxonomy route for y1/y4
+  already went to `Severe_Violence_NariOShishu`. Bumping the whole rule broke 8 checks and
+  had to be reverted.
+- `/demo/simulation` replays a scripted 16699 call. It feeds the caller lines to the **real**
+  `classifySeverity` and prints what came back, so a judge can retype a line and watch the
+  derivation change — which is the whole argument for not having hardcoded the answer.
+  Agent audio is pre-recorded, so a run costs nothing and can be repeated without touching
+  the STT or TTS budget, and a missing clip degrades to a caption rather than failing.

@@ -13,7 +13,11 @@
     "test:identity": "jiti scripts/test-identity-registry.ts",
     "test:case-rules": "jiti scripts/test-case-rules.ts",
     "test:case-flows": "jiti scripts/test-case-flows.ts",
-    "verify:deploy": "node scripts/verify-deploy.mjs"
+    "verify:deploy": "node scripts/verify-deploy.mjs",
+    "test:simulations": "jiti scripts/test-simulations.ts",
+    "test:safe-window": "jiti scripts/test-safe-window.ts",
+    "test:settlement-draft": "jiti scripts/test-settlement-draft.ts",
+    "test:bd-time": "jiti scripts/test-bd-time.ts"
   },
   "dependencies": {
     "@ai-sdk/openai": "^4.0.73",

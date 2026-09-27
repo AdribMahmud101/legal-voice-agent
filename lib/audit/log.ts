@@ -58,6 +58,14 @@ export const AUDIT_KINDS = {
   // Money and mediation
   payment_approved: "payment.approved",
   mediation_scheduled: "mediation.scheduled",
+  // Added for the ADR flow. Signing is auditable in its own right and is NOT the same
+  // event as certifying: certification is the Chief's act and needs all three
+  // signatures (certificationState in domain.ts), so recording a signature as
+  // settlement.certified would have overstated what had happened.
+  settlement_signed: "settlement.signed",
+  // Drafting is auditable and distinct from signing and certifying. It also records WHAT
+  // was left open, which is the part worth being able to review later.
+  settlement_drafted: "settlement.drafted",
   settlement_certified: "settlement.certified",
   // Contact
   message_queued: "message.queued",

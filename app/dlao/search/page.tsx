@@ -29,11 +29,21 @@ export default function DlaoSearch() {
       const data = await res.json();
       if (data.ok) {
         const q = query.toLowerCase();
-        const filtered = data.cases.filter((c: any) => 
-          c.id.toLowerCase().includes(q) || 
-          c.citizenPhone.includes(q) || 
-          c.citizenName.toLowerCase().includes(q) ||
-          c.docketId.toLowerCase().includes(q)
+        // Every one of these fields is nullable on PortalCase — `citizenPhone` is null
+        // whenever the application has no contact number, and `docketId` is null on an
+        // application that was never docketed. Calling .toLowerCase() or .includes() on
+        // them unguarded threw a TypeError that blanked the whole results list, so a
+        // single incomplete row took the search down.
+        const includes = (value: unknown): boolean =>
+          typeof value === "string" && value.toLowerCase().includes(q);
+        const filtered = data.cases.filter(
+          (c: any) =>
+            includes(c.id) ||
+            includes(c.citizenPhone) ||
+            includes(c.citizenName) ||
+            includes(c.docketId) ||
+            includes(c.applicationId) ||
+            includes(c.problem),
         );
         setResults(filtered);
       }
