@@ -102,9 +102,33 @@ console.log("\n=== 1. microphone GRANTED: the call must start ===");
 
 console.log("\n=== 2. microphone DENIED: the failure must be visible ===");
 {
-  const ctx = await browser.newContext({ permissions: [] });
+  const ctx = await browser.newContext();
   const page = await ctx.newPage();
   const sockets = await stubVoice(page, "denied");
+
+  // Deny the microphone deterministically.
+  //
+  // `permissions: []` does NOT deny: the browser-level fake device exists in every
+  // context, so the stream is granted and the test silently measured the happy path. A
+  // denied permission has no API to assert against either -- it is invisible until
+  // asked. So the refusal is injected at the only seam that matters, getUserMedia, and
+  // the app's own handling of NotAllowedError is what gets tested.
+  await page.addInitScript(() => {
+    const err = () => {
+      const e = new Error("Permission denied");
+      e.name = "NotAllowedError";
+      return e;
+    };
+    Object.defineProperty(navigator, "mediaDevices", {
+      configurable: true,
+      value: {
+        getUserMedia: () => Promise.reject(err()),
+        enumerateDevices: () => Promise.resolve([]),
+        addEventListener: () => {},
+        removeEventListener: () => {},
+      },
+    });
+  });
 
   await page.goto(SITE, { waitUntil: "networkidle", timeout: 60000 });
   await page.waitForTimeout(1200);
@@ -123,10 +147,15 @@ console.log("\n=== 2. microphone DENIED: the failure must be visible ===");
 
 console.log("\n=== 3. the greeting clip is actually fetchable ===");
 {
-  const res = await fetch(`${SITE}/audio/greeting_language.wav`, { method: "HEAD" });
+  // A ranged GET rather than HEAD: the worker does not send content-length for HEAD, so
+  // asserting on it would have measured a missing header instead of a missing file.
+  const res = await fetch(`${SITE}/audio/greeting_language.wav`, { headers: { Range: "bytes=0-1023" } });
   ok("greeting_language.wav is served", res.ok, `status ${res.status}`);
-  const len = Number(res.headers.get("content-length") ?? 0);
-  ok("it is not an empty file", len > 100000, `${len} bytes`);
+  const body = await res.arrayBuffer();
+  ok("it returns real audio bytes", body.byteLength >= 1024, `${body.byteLength} bytes`);
+  const head = new Uint8Array(body.slice(0, 4));
+  const isRiff = String.fromCharCode(head[0], head[1], head[2], head[3]) === "RIFF";
+  ok("it is a real RIFF/WAVE file, not an error page", isRiff);
 }
 
 await browser.close();
