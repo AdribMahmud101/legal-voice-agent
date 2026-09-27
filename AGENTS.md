@@ -1,6 +1,18 @@
 User identity: adribmahmud101 — GitHub account AdribMahmud101 (https://github.com/AdribMahmud101/legal-voice-agent.git), HTTPS remote `origin`, push to `main`.
 
-Deploy: `npx opennextjs-cloudflare build && npx wrangler deploy` (site: legal-voice-agent.adribmahmud.workers.dev). Typecheck first: `npx tsc --noEmit`.
+Deploy: **`npm run deploy`** (site: legal-voice-agent.adribmahmud.workers.dev). Typecheck first: `npx tsc --noEmit`.
+
+**Use `npm run deploy`, not `npx opennextjs-cloudflare build && npx wrangler deploy`.** The
+stamp in the page footer comes from `scripts/write-build-info.mjs`, which only `npm run build`
+(and therefore only `npm run deploy`) runs. The bare `npx` command skips it, and a deploy done
+that way ships a footer reading a commit two versions old — which is precisely the stale-deploy
+signal the stamp exists to give. This happened once already. `node scripts/check-build-stamp.mjs`
+is **FREE** and fails if the stamp is more than one commit behind; run it after any deploy.
+
+The stamp is generated *during* the build and committed *after* it, so a correct stamp always
+names the commit immediately before the one carrying `lib/build-info.ts`. That one-commit offset
+is expected, not a bug — do not "fix" it by amending, which invalidates the stamp it just wrote.
+
 STT/TTS: Soniox only. TTS needs `Authorization: Bearer` on WS handshake (worker proxy handles it); keepalive `{"keep_alive":true}`/`{"type":"KeepAlive"}` every 20s; stale sockets handled by `speakWhenReady` in `lib/voice-sdk/direct/ws_tts.ts`.
 
 ## Verification cost — IMPORTANT
@@ -49,6 +61,7 @@ Confirmed by grep: none of these click "কল করুন" or touch `/v1/stt` 
 - `npm run test:case-rules` — case/SLA/guard/audit/role business rules. Pure, no network.
 - `npm run test:case-flows` — the approval flows end to end against the 0016 rules. Pure.
 - `npm run test:simulations`, `test:safe-window`, `test:bd-time`, `test:settlement-draft` — pure.
+- `node scripts/check-build-stamp.mjs` — one HTTP GET plus git. Run it after **any** deploy.
 
 `scripts/generate_sim_audio.mjs` is the one script here that **spends** (TTS synthesis,
 one clip at a time). It borrows the deployed `/v1/tts` proxy, so it needs no local key.

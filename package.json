@@ -7,6 +7,8 @@
     "stop": "node ./scripts/stop.mjs",
     "restart": "node ./scripts/restart.mjs",
     "build": "node scripts/write-build-info.mjs && next build",
+    "build:worker": "node scripts/write-build-info.mjs && opennextjs-cloudflare build",
+    "deploy": "npm run build:worker && wrangler deploy",
     "start": "next start",
     "lint": "eslint",
     "test:semantic": "jiti scripts/test-semantic-bridge.ts",
