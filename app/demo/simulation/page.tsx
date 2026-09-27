@@ -50,13 +50,16 @@ export default function SimulationModePage() {
           </p>
         </header>
 
-        <div style={{ display: "grid", gap: "var(--space-md, 16px)", gridTemplateColumns: "repeat(auto-fit, minmax(280px, 1fr))" }}>
+        {/* min(100%, 300px) rather than a bare 280px: a bare minimum is wider than a
+            360px phone once padding is counted, so the grid overflowed sideways. */}
+        <div style={{ display: "grid", gap: "var(--space-md, 16px)", gridTemplateColumns: "repeat(auto-fit, minmax(min(100%, 300px), 1fr))" }}>
           {SIMULATIONS.map((s) => {
             const p = getPersona(s.personaId);
             return (
               <button
                 key={s.id}
                 type="button"
+                data-scenario={s.id}
                 onClick={() => setOpenId(s.id)}
                 style={{
                   textAlign: "left",

@@ -22,9 +22,21 @@ ck("the other three are still separate", txt.includes("নাবিলা") && t
 const link = p.locator('a[href*="scenario=moyuri-ripon"]').first();
 ck("the merged entry navigates rather than logging in", await link.count() === 1, await link.getAttribute("href"));
 
-// The individual ones still sign in.
-const chips = await p.locator('button[aria-label*="লগইন করুন"]').count();
-ck("three individual login buttons remain", chips === 3, String(chips));
+// The other three stay SEPARATE, and each opens its own scenario.
+//
+// They used to be `লগইন করুন` buttons. Every persona entry is now a link into that
+// persona's simulation, which is what "clicking login for each persona starts that
+// persona's simulation" asks for — so the property worth guarding is that the three
+// remain distinct and each deep-links correctly, not that they are buttons.
+const others = ["nabila", "nuching", "malek"];
+const hrefs = await p.evaluate((ids) =>
+  ids.map((id) => {
+    const a = document.querySelector(`a[href*="scenario=${id}"]`);
+    return a ? a.getAttribute("href") : null;
+  }), others);
+ck("the other three link to their own scenario", hrefs.every((h) => !!h), JSON.stringify(hrefs));
+ck("and none of them points at the merged scenario",
+   !hrefs.some((h) => h && h.includes("moyuri-ripon")), JSON.stringify(hrefs));
 
 // Click it and land on the right script.
 await link.click();

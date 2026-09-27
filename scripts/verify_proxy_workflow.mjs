@@ -45,7 +45,15 @@ const sim = await page.evaluate(() => document.body.innerText);
 check('simulation page renders', sim.includes('সিমুলেশন'));
 check('it is described as real engine output, not a script', sim.includes('আসল শ্রেণিবিভাগ ইঞ্জিন'), sim.slice(0, 200));
 check('Moyuri/Ripon is the first scenario', sim.includes('মোয়ূরী') && sim.includes('রিপন'));
-check('the 15-minute window is on screen', sim.includes('১৫ মিনিট') || sim.includes('11:00') || sim.includes('১১:০০'), '');
+
+// The story now lives in a dialog, so it has to be opened. The 15-minute window is a
+// phase of the story, so it is only on screen once the dialog is — which is what these
+// two checks are actually about.
+await page.locator('[data-scenario="moyuri-ripon"]').first().click();
+await page.waitForSelector('[role="dialog"]', { timeout: 30000 });
+await page.waitForTimeout(1200);
+const opened = await page.evaluate(() => document.body.innerText);
+check('the 15-minute window is on screen', opened.includes('১৫ মিনিট') || opened.includes('11:00') || opened.includes('১১:০০'), '');
 
 const startButton = page.locator('button', { hasText: 'সিমুলেশন চালান' }).first();
 check('there is a run button', await startButton.count() === 1);
@@ -112,10 +120,11 @@ const w2 = await page.evaluate(async (id) => {
   return await r.json();
 }, CASE);
 check('the reminder is queued, not sent', (w2.reminders || []).length >= 1, `${(w2.reminders || []).length} queued`);
-// Both the seeded row and the newly-created one must carry a reason; the wording differs
-// per source, so assert the two ideas rather than one string.
+// Every queued reminder must name the blocked destination AND say nothing is sent. The
+// wording legitimately differs per source — "নিষিদ্ধ", "যাবে না", "পাঠানো হবে না" are all
+// the same promise — so match a negation rather than one chosen phrase.
 check('every queued reminder states the zero-outbound reason',
-  (w2.reminders || []).every((r) => /স্বামীর নম্বরে/.test(r.why_bn || '') && /(নিষিদ্ধ|যাবে না)/.test(r.why_bn || '')),
+  (w2.reminders || []).every((r) => /স্বামীর নম্বরে/.test(r.why_bn || '') && /(নিষিদ্ধ|নয়|না)/.test(r.why_bn || '')),
   JSON.stringify((w2.reminders || []).map((r) => r.why_bn)));
 
 /* --------------------------------- 5. proxy record vs the applicant's own */

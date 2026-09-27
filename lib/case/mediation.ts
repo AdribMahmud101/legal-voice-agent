@@ -168,6 +168,20 @@ export function bdDayOfMonth(date: Date): number {
   return bdParts(date).day;
 }
 
+/**
+ * The abbreviated weekday, in BANGLADESH terms.
+ *
+ * Added because a date strip was calling `toLocaleDateString("bn-BD", { weekday: "short" })`
+ * on a Bangladesh-derived date. That formats in the runtime's timezone using the host's
+ * ICU data, so the Worker and the officer's browser could disagree about the label on an
+ * otherwise-correct date — the same defect `formatBn` exists to prevent. The abbreviations
+ * were already here in `MEDIATION_WEEKDAYS`, so this only exposes them.
+ */
+export function weekdayBnShort(date: Date): string {
+  const index = WORKDAY_INDEX[bdParts(date).weekday];
+  return index === undefined ? "" : MEDIATION_WEEKDAYS[index].short;
+}
+
 /** Month number in Bangladesh, 1-12, for rendering. */
 export function bdMonthOfYear(date: Date): number {
   return bdParts(date).month + 1;

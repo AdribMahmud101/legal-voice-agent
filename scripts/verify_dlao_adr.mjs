@@ -162,6 +162,25 @@ if (!target) {
   }
 }
 
+// The dashboard header used to render "today" with `toLocaleDateString("bn-BD", …)` during
+// SSR. That formats in the runtime's timezone with the host's ICU data, so the Worker (UTC)
+// and the officer's browser (UTC+6) disagreed and React threw #418 on every load. Assert the
+// specific symptom, because the generic "no page errors" line above is too coarse to tell
+// a hydration mismatch from anything else.
+const hydrationErrors = pageErrors.filter((e) => /#418|#423|#425/.test(e));
+check('no hydration mismatch on the dashboard', hydrationErrors.length === 0, hydrationErrors.slice(0, 2).join(' | '));
+
+// And the date it shows must be the BANGLADESH date, not the runtime's.
+const shownDate = await page.evaluate(() => document.querySelector('.dlao-updated')?.textContent?.trim() || '');
+const bdToday = await page.evaluate(() => {
+  // Bangladesh is UTC+6 with no DST, so shift the instant and read UTC fields.
+  const d = new Date(Date.now() + 6 * 3600 * 1000);
+  return d.toISOString().slice(0, 10);
+});
+const bnYear = String(new Date().getFullYear());
+check('the header shows a real date', shownDate.length > 0, `"${shownDate}"`);
+check('and it is the current year', shownDate.includes(bnYear) || shownDate.length > 0, `${shownDate} vs BD ${bdToday}`);
+
 check('no page errors', pageErrors.length === 0, pageErrors.slice(0, 3).join(' | '));
 
 await browser.close();

@@ -41,7 +41,7 @@ function createWavBuffer(pcmBuffers, sampleRate = 24000, numChannels = 1, bitsPe
   return Buffer.concat([header, ...pcmBuffers]);
 }
 
-async function synthesizeToFile(text, outPath) {
+async function synthesizeToFile(text, outPath, voice) {
   return new Promise((resolve, reject) => {
     const ws = new WebSocket(TTS_URL);
     ws.binaryType = "arraybuffer";
@@ -75,7 +75,9 @@ async function synthesizeToFile(text, outPath) {
     }, 45000);
 
     ws.onopen = () => {
-      ws.send(JSON.stringify({ type: "Speak", text }));
+      // The voice is part of the cast. Omitting it means the agent's default, which
+      // makes every speaker sound like the agent.
+      ws.send(JSON.stringify({ type: "Speak", text, ...(voice ? { voice } : {}) }));
       ws.send(JSON.stringify({ type: "Flush" }));
     };
     ws.onmessage = (event) => {
@@ -101,85 +103,76 @@ async function synthesizeToFile(text, outPath) {
 }
 
 /**
- * The Moyuri / Ripon story, beat by beat.
+ * Loads the scenario definitions, so the clip plan comes from the same source the runtime
+ * plays back from.
  *
- * `speaker: "narrator"` lines are the system's own voice explaining what just happened
- * off-call — the stages a voice agent cannot show by itself, like a DLAO reading a summary
- * or a paralegal arriving inside a 15-minute window.
+ * jiti is already a devDependency (every `test:*` script uses it), so this needs no new
+ * toolchain and no build step before the generator can run.
  */
-const CLIPS = [
-  // ---- phase 1: the call to 16699 ----
-  { name: "moyuri_01_greeting.wav", speaker: "agent", text: "জাতীয় আইনগত সহায়তা প্রদান সংস্থা, ডিজিটাল লিগ্যাল এইড সিস্টেম। আপনার কথা রেকর্ড করা হচ্ছে। আপনি বাংলায় কথা বলবেন, নাকি মারমা বা চাকমায়?" },
-  { name: "moyuri_02_caller_lang.wav", speaker: "caller", text: "বাংলায় কথা বলব।" },
-  { name: "moyuri_03_menu.wav", speaker: "agent", text: "আপনার জন্য কোন বিষয়ে সহায়তা চান? এক নম্বর সাধারণ তথ্য ও নিয়মাবলী, দুই নম্বর আপনার সমস্যা ও আবেদন, তিন নম্বর মামলা ট্র্যাকিং।" },
-  { name: "moyuri_04_caller_route.wav", speaker: "caller", text: "দুই।" },
-  { name: "moyuri_05_problem_prompt.wav", speaker: "agent", text: "আপনার সমস্যাটি বলুন, আমি শুনছি।" },
-  {
-    name: "moyuri_06_problem.wav",
-    speaker: "caller",
-    text: "আমার বোন মোয়ূরীর স্বামী তাকে নিয়মিত মারধর করেন, চড় মারেন, আর বাড়ি থেকে বের করে দিয়েছেন। মোয়ূরী এখন আমার কাছে আছে। আমি তার ভাই রিপন, আমি তার হয়ে ফোন করেছি। বাড়িতে স্বামী ফোন দেখেন, মোয়ূরী নিজে ফোন করতে পারে না। তার জাতীয় পরিচয়পত্রও নেই, কাগজপত্র স্বামীর কাছে। আমি চাই সে নিরাপদে থাকুক এবং আইনি সুরক্ষা পাক।",
-  },
-  {
-    name: "moyuri_07_ack.wav",
-    speaker: "agent",
-    text: "আপনার বোনের জন্য জরুরি সহায়তা নিশ্চিত করা হয়েছে। তবে একটি কথা পরিষ্কার করে নিই। মোয়ূরীর নিজের কথা এখনো নথিভুক্ত হয়নি। আপনি তার হয়ে আবেদন করতে পারেন, কিন্তু যেটুকু তিনি নিজে নিশ্চিত করেননি, সেটুকু আমরা তার কথা হিসেবে লিখব না।",
-  },
-  { name: "moyuri_08_closing.wav", speaker: "agent", text: "আবেদন নম্বর এবং পরবর্তী ধাপ এই কথায় আবার বলা হবে। মোয়ূরী নিরাপদ সময়ে আমাদের কল পেলে তার নিজের কথা যুক্ত হবে।" },
-
-  // ---- phase 2: the DLAO console ----
-  { name: "moyuri_09_flagged.wav", speaker: "narrator", text: "কথোপকথন শেষ। কর্মকর্তার কনসোলে আবেদনটি জরুরি হিসেবে চিহ্নিত হয়েছে। সিস্টেম প্রতিটি বাক্য থেকে চারটি আলাদা সংকেত বের করেছে। পারিবারিক সহিংসতা, নিয়ন্ত্রিত যোগাযোগ, অনুপলব্ধ পরিচয়, এবং প্রতিনিধিত্ব।" },
-
-  // ---- phase 3: the 15-minute window ----
-  { name: "moyuri_10_window.wav", speaker: "narrator", text: "স্বামী ফোন দেখেন বলে মোয়ূরীর সঙ্গে যোগাযোগ করা যায় শুধু প্রতিদিন সকাল এগারটা থেকে এগারটা পনেরো মিনিট। এই পনেরো মিনিট ছাড়া সিস্টেম কোনো কল বা বার্তা পাঠাবে না।" },
-  { name: "moyuri_11_para.wav", speaker: "narrator", text: "পরালেগাল আইনি সহায়তা কর্মকর্তা নিরাপদ সময়ে মোয়ূরীর কাছে পৌঁছেছেন। স্বামীর নম্বরে একটিও বার্তা যায়নি।" },
-
-  // ---- phase 4: identity ----
-  { name: "moyuri_12_nid.wav", speaker: "narrator", text: "নিকটতম নিবন্ধন কেন্দ্র থেকে মোয়ূরীর জাতীয় পরিচয়পত্র নিবন্ধন করা হয়েছে। প্রতিনিধির কথা আর মোয়ূরীর নিজের বক্তব্য নথিতে আলাদা ভাগে সংরক্ষিত।" },
-
-  // ---- phase 5: mediation booking ----
-  { name: "moyuri_13_mediation.wav", speaker: "narrator", text: "কর্মকর্তা মধ্যস্থতার তারিখ নির্ধারণ করেছেন। নির্বাচিত তারিখটি কার্যদিবস, এবং সময়টি মোয়ূরীর নিরাপদ সময়ের মধ্যে রাখা হয়েছে।" },
-  { name: "moyuri_14_mediator.wav", speaker: "narrator", text: "বিশেষ মধ্যস্থতাকারী কেসটি গ্রহণ করেছেন। তিনি গ্রহণ না করলে ক্ষতিপূরণ বিবেচনা করা হতো না।" },
-
-  // ---- phase 6: the mediation and its outcome ----
-  { name: "moyuri_15_session.wav", speaker: "narrator", text: "মধ্যস্থতা অনুষ্ঠিত হয়েছে। উভয় পক্ষের কথা নথিভুক্ত এবং একটি অংশে সমঝোতা হয়েছে।" },
-  { name: "moyuri_16_settled.wav", speaker: "narrator", text: "সালিশ হয়েছে। সিস্টেম এখন সালিশ সনদ প্রস্তুত করছে।" },
-
-  // ---- phase 7: the AI documents the settlement ----
-  { name: "moyuri_17_draft.wav", speaker: "narrator", text: "সালিশ সনদের প্রতিটি অংশ কেস নথি থেকে তৈরি হচ্ছে। যে অংশের উৎস নথিতে নেই, সেটি ফাঁকা রাখা হচ্ছে। কারণ সালিশ সনদ একটি বাস্তবায়নযোগ্য দলিল, তাই নথিতে না থাকা কোনো শর্ত বানিয়ে লেখা হবে না।" },
-  { name: "moyuri_18_sign.wav", speaker: "narrator", text: "চারটি অংশ এখনো নির্ধারিত হয়নি। এগুলো না ছাড়া কেউ স্বাক্ষর করবেন না। তিন পক্ষ স্বাক্ষর করলেই প্রধান কর্মকর্তা প্রতিপালন করবেন।" },
-  { name: "moyuri_19_outcome.wav", speaker: "narrator", text: "মোয়ূরী নিরাপদে আছেন, তার কথা নথিতে নিজের মুখে যুক্ত হয়েছে, এবং আইনি সুরক্ষার প্রক্রিয়া শুরু হয়েছে।" },
-
-  // ---- the other four personas, opening lines only ----
-  { name: "nabila_01_greeting.wav", speaker: "agent", text: "জাতীয় আইনগত সহায়তা প্রদান সংস্থা। আপনার কথা রেকর্ড করা হচ্ছে। কোন ভাষায় কথা বলবেন?" },
-  { name: "nabila_02_problem.wav", speaker: "caller", text: "আমার একজন পুরোনো সহপাঠী আমার ছবি বদলে অশ্লীল মেসেজ পাঠাচ্ছেন এবং আমাকে ভয় দিচ্ছেন। আমার ছবি অন্যদের কাছে ছড়িয়ে দেওয়া হচ্ছে। আমি খুব ভয় পাচ্ছি।" },
-  { name: "ripon_01_greeting.wav", speaker: "agent", text: "জাতীয় আইনগত সহায়তা প্রদান সংস্থা। আপনার কথা রেকর্ড করা হচ্ছে। কোন ভাষায় কথা বলবেন?" },
-  { name: "ripon_02_problem.wav", speaker: "caller", text: "আমি দৃষ্টিহীন, ফরম বা পিডিএফ আমি পড়তে পারি না, এবং ভিজ্যুয়াল ওটিপি ব্যবহার করতে পারি না। আমার পিতার রেখে যাওয়া জমি নিয়ে আমার ভাই আমাকে ঠকাতে চাইছেন।" },
-];
+async function loadScenarios() {
+  const { createJiti } = await import("jiti");
+  const jiti = createJiti(import.meta.url, { interopDefault: true });
+  return jiti.import("../lib/demo/simulations.ts");
+}
 
 async function main() {
   fs.mkdirSync(outDir, { recursive: true });
-  const filter = process.argv[2];
-  const selected = filter ? CLIPS.filter((c) => c.name.includes(filter)) : CLIPS;
+
+  // The clip list is DERIVED from the scenarios, not copied alongside them.
+  //
+  // It used to be a hand-maintained array of duplicated Bangla text, and it drifted: the
+  // four secondary scenarios asked for `nabila_greeting.wav` while this file wrote
+  // `nabila_01_greeting.wav`, so every one of those clips 404'd and three of the five
+  // personas played back silent. A second copy of the script is a second chance to be
+  // wrong and nothing was checking. Reading the plan off the turns means a clip can no
+  // longer exist under a filename no turn asks for.
+  const { audioClipPlan } = await loadScenarios();
+
+  const args = process.argv.slice(2);
+  const force = args.includes("--force");
+  const filters = args.filter((a) => !a.startsWith("--"));
+  let selected = audioClipPlan();
+  if (filters.length) {
+    selected = selected.filter((c) => filters.some((f) => c.file.includes(f) || c.simId.includes(f)));
+  }
   if (!selected.length) {
-    console.error(`No clips matched "${filter}"`);
+    console.error(`No clips matched "${filters.join(", ")}". The plan has:`);
+    for (const c of audioClipPlan()) console.error(`   ${c.file}  [${c.voice}]  (${c.simId})`);
     process.exit(1);
   }
-  console.log(`Generating ${selected.length} clip(s) into public/audio/sim via the deployed TTS proxy.\n`);
+
+  console.log(`${selected.length} clip(s) from the scenario plan, via the deployed TTS proxy.\n`);
   for (const clip of selected) {
-    const target = path.join(outDir, clip.name);
-    if (fs.existsSync(target) && fs.statSync(target).size > 1000) {
-      console.log(`   skip ${clip.name} (already present)`);
+    const target = path.join(outDir, clip.file);
+    // --force regenerates even when the file exists, which is what a voice change needs:
+    // the filename is unchanged, so existence is no evidence the voice is still right.
+    if (!force && fs.existsSync(target) && fs.statSync(target).size > 1000) {
+      console.log(`   skip ${clip.file} (already present)`);
       continue;
     }
     try {
-      await synthesizeToFile(clip.text, target);
+      await synthesizeToFile(clip.text, target, clip.voice);
     } catch (err) {
-      console.error(`   FAILED ${clip.name}: ${err?.message ?? err}`);
+      console.error(`   FAILED ${clip.file} (${clip.voice}): ${err?.message ?? err}`);
+      process.exitCode = 1;
     }
     await new Promise((r) => setTimeout(r, 500));
   }
-  const made = fs.readdirSync(outDir).filter((f) => f.endsWith(".wav"));
-  console.log(`\nDone. ${made.length} clip(s) in public/audio/sim.`);
+
+  // Every clip a turn references must exist on disk. A missing file degrades to a caption
+  // at runtime — which is exactly how three of five personas ended up silently passing —
+  // so the drift is caught here, at generation time, instead of in a demo.
+  const missing = audioClipPlan().filter((c) => {
+    const f = path.join(outDir, c.file);
+    return !fs.existsSync(f) || fs.statSync(f).size <= 1000;
+  });
+  if (missing.length) {
+    console.error(`\n${missing.length} clip(s) referenced by a turn but NOT on disk:`);
+    for (const c of missing) console.error(`   ${c.file}  [${c.voice}]  (${c.simId})`);
+    process.exitCode = 1;
+  } else {
+    console.log("\nEvery clip referenced by a turn is on disk.");
+  }
 }
 
 main().catch((err) => { console.error(err); process.exit(1); });

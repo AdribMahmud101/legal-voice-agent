@@ -185,7 +185,11 @@ async function handleTtsWebSocket(request: Request, env: any): Promise<Response>
   let clientMessageQueue: Promise<void> = Promise.resolve();
   const model = "tts-rt-v2";
   const language = "bn";
-  const voice = env.TTS_VOICE_ID || "Priya";
+  /**
+   * The default voice for the live 16699 agent. A single agent has one voice — the caller
+   * is talking to one institution, not to a cast.
+   */
+  const defaultVoice = env.TTS_VOICE_ID || "Priya";
 
   async function ensureUpstream(): Promise<any> {
     if (upstreamWs && upstreamWs.readyState === 1) {
@@ -326,6 +330,20 @@ async function handleTtsWebSocket(request: Request, env: any): Promise<Response>
         if (req.type === "Speak" && typeof req.text === "string") {
           const clean = req.text.trim();
           if (!clean) return;
+
+          /**
+           * A per-request voice, honoured ONLY when the caller sends one.
+           *
+           * The recorded simulation needs distinct voices for distinct speakers, and brief
+           * A2 is specifically a MALE caller reporting for his sister — read in the
+           * agent's female default, the proxy demo misrepresents the very scenario it is
+           * meant to prove.
+           *
+           * Backwards compatible by construction: the live voice SDK never sends `voice`,
+           * so `defaultVoice` still applies to every real call and production is unchanged.
+           */
+          const voice =
+            typeof req.voice === "string" && req.voice.trim() ? req.voice.trim() : defaultVoice;
 
           const up = await ensureUpstream();
           if (myEpoch !== streamEpoch || serverWs.readyState !== 1) return;
@@ -1300,6 +1318,41 @@ export default {
     const url = new URL(request.url);
     if (url.pathname === "/v1/tts") {
       return handleTtsWebSocket(request, env);
+    }
+    /**
+     * Lists the built-in TTS voices.
+     *
+     * The recorded simulation needs a male voice for Ripon and a different female voice
+     * for Moyuri, and Soniox's voice catalogue is only reachable with the API key — which
+     * lives here, not in any local environment. Guessing names and synthesising until one
+     * works burns credits on every attempt, so this asks instead.
+     *
+     * Gated on DEBUG_ENDPOINTS exactly like /api/test-env, and it exposes only names,
+     * gender and description — never the key. Read-only, and cheap.
+     */
+    if (url.pathname === "/v1/voices" && request.method === "GET") {
+      if (String(env.DEBUG_ENDPOINTS) !== "1") {
+        return new Response("Not found", { status: 404 });
+      }
+      const apiKey = env.SONIOX_API_KEY || "";
+      if (!apiKey) return jsonResponse({ ok: false, error: "No TTS key" }, 500);
+      const upstream = await fetch("https://api.soniox.com/v1/tts-models", {
+        headers: { Authorization: `Bearer ${apiKey}` },
+      });
+      if (!upstream.ok) {
+        return jsonResponse({ ok: false, error: `Upstream ${upstream.status}` }, 502);
+      }
+      const body: any = await upstream.json();
+      const models = Array.isArray(body) ? body : body?.models ?? [];
+      const voices = models.flatMap((m: any) =>
+        (m?.voices ?? []).map((v: any) => ({
+          model: m?.id,
+          id: typeof v === "string" ? v : v?.id,
+          gender: typeof v === "string" ? undefined : v?.gender,
+          description: typeof v === "string" ? undefined : v?.description,
+        }))
+      );
+      return jsonResponse({ ok: true, count: voices.length, voices });
     }
     if (url.pathname === "/v1/stt") {
       return handleSttWebSocket(request, env);

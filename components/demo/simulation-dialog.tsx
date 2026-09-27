@@ -7,6 +7,7 @@ import { getPersona } from "@/lib/demo/personas";
 import { classifySeverity, type SeverityClassification } from "@/lib/agent/knowledge/severity-classification";
 import type { SettlementDraft } from "@/lib/case/settlement-draft";
 import { SettlementDraftAnimation } from "@/components/mediation/settlement-draft-animation";
+import MediationBookingVisual from "@/components/mediation/mediation-booking-visual";
 
 /**
  * Simulation Mode.
@@ -26,6 +27,23 @@ import { SettlementDraftAnimation } from "@/components/mediation/settlement-draf
  * The workflow step that matters is a REAL call: the mediation booking posts to
  * /api/portal/mediations and is subject to the same gate as any officer's booking.
  */
+
+/** Speaker labels. The four are colour-coded in the status bar and the turn card. */
+const SPEAKER_COLOUR: Record<SimulationTurn["speaker"], string> = {
+  agent: "#15803d",
+  caller: "#1d4ed8",
+  narrator: "#a16207",
+  // Her own account, in her own voice. A different colour from `caller` on purpose: the
+  // whole point of the turn is that this record is NOT the proxy's.
+  moyuri: "#7e22ce",
+};
+
+const SPEAKER_BN: Record<SimulationTurn["speaker"], string> = {
+  agent: "এজেন্ট",
+  caller: "কলকারী",
+  narrator: "সিস্টেম",
+  moyuri: "আবেদনকারী",
+};
 
 interface Derivation {
   turn: SimulationTurn;
@@ -82,6 +100,15 @@ export function SimulationDialog({
     }
     return marks;
   }, [sim]);
+  /** Has the story reached this phase? Panels reveal on arrival and then STAY. */
+  const hasReachedPhase = useCallback(
+    (id: string) => {
+      const at = phaseStarts.find((m) => m.id === id)?.at;
+      return at === undefined ? false : index >= at;
+    },
+    [phaseStarts, index]
+  );
+
   const currentPhase = useMemo(
     () => [...phaseStarts].reverse().find((m) => index >= m.at) ?? null,
     [phaseStarts, index]
@@ -90,6 +117,7 @@ export function SimulationDialog({
   const [history, setHistory] = useState<Derivation[]>([]);
   const [audioState, setAudioState] = useState<"idle" | "playing" | "missing">("idle");
   const [booking, setBooking] = useState<{ tone: "ok" | "err"; text: string } | null>(null);
+  const [bookingBusy, setBookingBusy] = useState(false);
   const audioRef = useRef<HTMLAudioElement | null>(null);
   /** The clip currently loaded, exposed on the DOM so a test can read it. */
   const [audioSrc, setAudioSrc] = useState<string | null>(null);
@@ -188,40 +216,47 @@ export function SimulationDialog({
     return () => { cancelled = true; };
   }, [running, turn, finished, advance]);
 
-  async function bookMediation() {
-    if (!sim.config?.bookMediation) return;
-    setBooking({ tone: "ok", text: "অনুরোধ পাঠানো হচ্ছে…" });
-    // The next Sunday-Thursday day that is not today.
-    let date: string | null = null;
-    for (let i = 2; i <= 16 && !date; i += 1) {
-      const d = new Date();
-      d.setDate(d.getDate() + i);
-      if (d.getDay() <= 4) {
-        date = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+  async function bookMediation(date?: string, time?: string) {
+    const cfg = sim.config?.bookMediation;
+    if (!cfg) return;
+    setBookingBusy(true);
+    setBooking({ tone: "ok", text: "নিবন্ধন হচ্ছে…" });
+    // Fall back to the next working day only if the visual did not supply one.
+    let when = date;
+    if (!when) {
+      for (let i = 2; i <= 16 && !when; i += 1) {
+        const d = new Date();
+        d.setDate(d.getDate() + i);
+        if (d.getDay() <= 4) {
+          when = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+        }
       }
     }
-    if (!date) { setBooking({ tone: "err", text: "উপযুক্ত তারিখ পাওয়া যায়নি।" }); return; }
+    if (!when) { setBookingBusy(false); setBooking({ tone: "err", text: "উপযুক্ত তারিখ পাওয়া যায়নি।" }); return; }
     try {
       const res = await fetch("/api/portal/mediations", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         credentials: "include",
         body: JSON.stringify({
-          caseId: sim.config.bookMediation.caseId,
-          date,
-          time: "10:00",
-          venue: sim.config.bookMediation.venue,
+          caseId: cfg.caseId,
+          date: when,
+          time: time || "11:00",
+          venue: cfg.venue,
+          mediatorName: cfg.mediatorName,
           notes: `সিমুলেশন: ${sim.title}`,
         }),
       });
       const body = await res.json();
       if (!res.ok || !body.ok) {
-        setBooking({ tone: "err", text: body.error || "অনুরোধ পাঠানো যায়নি।" });
+        setBooking({ tone: "err", text: body.error || "নিবন্ধন করা যায়নি।" });
         return;
       }
-      setBooking({ tone: "ok", text: `মধ্যস্থতা নির্ধারিত — ${date} ১০:০০, ${sim.config.bookMediation.venue}` });
+      setBooking({ tone: "ok", text: `মধ্যস্থতা নির্ধারিত — ${when} ${time || "১১:০০"}, ${cfg.venue}` });
     } catch {
       setBooking({ tone: "err", text: "সংযোগ বিচ্ছিন্ন।" });
+    } finally {
+      setBookingBusy(false);
     }
   }
 
@@ -462,7 +497,17 @@ export function SimulationDialog({
         })}
       </div>
 
-      <div style={{ display: "grid", gap: "var(--space-xl, 24px)", gridTemplateColumns: "minmax(0, 1.25fr) minmax(0, 1fr)", alignItems: "start" }}>
+      {/* One column on a phone, two only when there is genuinely room.
+          The previous fixed `1.25fr 1fr` forced two columns at every width, which on a
+          360px screen left ~150px per column and wrapped the Bangla into ribbons. */}
+      <div
+        style={{
+          display: "grid",
+          gap: "var(--space-xl, 24px)",
+          gridTemplateColumns: "repeat(auto-fit, minmax(min(100%, 420px), 1fr))",
+          alignItems: "start",
+        }}
+      >
 
         {/* ---- the call ---- */}
         <section style={{ background: "#fff", border: "1px solid var(--portal-border, #e2e8f0)", borderRadius: 14, padding: "var(--space-lg, 20px)", display: "flex", flexDirection: "column", gap: 14 }}>
@@ -517,25 +562,6 @@ export function SimulationDialog({
             >
               {running ? "থামান" : finished ? "আবার চালান" : `সিমুলেশন চালান (${timeline.length} ধাপ)`}
             </button>
-            {finished && sim.config?.bookMediation ? (
-              <>
-                <button
-                  type="button"
-                  onClick={bookMediation}
-                  style={{ background: "#fff", color: "#1d4ed8", border: "1.5px solid #1d4ed8", borderRadius: 8, padding: "0 18px", minHeight: "var(--touch-min, 2.75rem)", fontFamily: "var(--font-bn)", fontWeight: 700, cursor: "pointer" }}
-                >
-                  মধ্যস্থতা নির্ধারণ করুন
-                </button>
-                <button
-                  type="button"
-                  onClick={runSettlementChain}
-                  disabled={chainBusy}
-                  style={{ background: "#7c3aed", color: "#fff", border: "none", borderRadius: 8, padding: "0 18px", minHeight: "var(--touch-min, 2.75rem)", fontFamily: "var(--font-bn)", fontWeight: 700, cursor: chainBusy ? "wait" : "pointer", opacity: chainBusy ? 0.6 : 1 }}
-                >
-                  {chainBusy ? "চলছে…" : "মধ্যস্থতা → AI সালিশ সনদ"}
-                </button>
-              </>
-            ) : null}
             <span style={{ fontFamily: "var(--font-bn)", fontSize: "0.75rem", color: "var(--portal-text-muted, #94a3b8)" }}>
               {finished ? "সম্পন্ন" : `ধাপ ${index + 1} / ${timeline.length}`}
               {audioState === "playing" ? " · ভয়েস চলছে" : audioState === "missing" ? " · অডিও নেই, লেখা দেখানো হচ্ছে" : ""}
@@ -553,7 +579,7 @@ export function SimulationDialog({
               end: the window governs the paralegal visit in phase 3, and the booking
               happens in phase 5. Revealing each when its phase arrives is the difference
               between a story and a form. */}
-          {currentPhase?.id === "window" && sim.config?.safeWindow && windowState?.hasWindow ? (
+          {hasReachedPhase("window") && sim.config?.safeWindow && windowState?.hasWindow ? (
             <section style={{ border: "1.5px solid #1d4ed8", borderRadius: 12, background: "#eff6ff", padding: "var(--space-lg, 20px)" }}>
               <h3 style={{ fontFamily: "var(--font-bn)", fontSize: "0.9375rem", fontWeight: 700, margin: "0 0 4px", color: "#1e3a8a" }}>
                 এই মুহূর্তে যা ঘটছে
@@ -586,7 +612,7 @@ export function SimulationDialog({
             </section>
           ) : null}
 
-          {currentPhase?.id === "mediation" && finished ? (
+          {hasReachedPhase("mediation") ? (
             <section style={{ border: "1.5px solid #1d4ed8", borderRadius: 12, background: "#eff6ff", padding: "var(--space-lg, 20px)" }}>
               <h3 style={{ fontFamily: "var(--font-bn)", fontSize: "0.9375rem", fontWeight: 700, margin: "0 0 4px", color: "#1e3a8a" }}>
                 মধ্যস্থতা নির্ধারণ
@@ -594,25 +620,103 @@ export function SimulationDialog({
               <p style={{ fontFamily: "var(--font-bn)", fontSize: "0.8125rem", color: "#1e3a8a", margin: "0 0 10px", lineHeight: 1.65 }}>
                 কর্মকর্তা কার্যদিবসে তারিখ বেছে নিচ্ছেন, আর মধ্যস্থতাকারীকে আমন্ত্রণ জানাচ্ছেন।
               </p>
-              <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
-                <button
-                  type="button"
-                  onClick={bookMediation}
-                  style={{ background: "#1d4ed8", color: "#fff", border: "none", borderRadius: 8, padding: "0 16px", minHeight: "var(--touch-min, 2.75rem)", fontFamily: "var(--font-bn)", fontWeight: 700, cursor: "pointer" }}
-                >
-                  কার্যদিবসে তারিখ বেছে নিন
-                </button>
-                <button
-                  type="button"
-                  onClick={runSettlementChain}
-                  disabled={chainBusy}
-                  style={{ background: "#7c3aed", color: "#fff", border: "none", borderRadius: 8, padding: "0 16px", minHeight: "var(--touch-min, 2.75rem)", fontFamily: "var(--font-bn)", fontWeight: 700, cursor: chainBusy ? "wait" : "pointer", opacity: chainBusy ? 0.6 : 1 }}
-                >
-                  {chainBusy ? "চলছে…" : "পুরো চেইন চালান: নির্ধারণ → সালিশ → সনদ"}
-                </button>
-              </div>
+              {sim.config?.bookMediation ? (
+                <>
+                  <MediationBookingVisual
+                    config={sim.config.bookMediation}
+                    busy={bookingBusy}
+                    onBook={(date, time) => bookMediation(date, time)}
+                  />
+
+                  {/*
+                    The chain is gated on `finished` while the booking is not, and the
+                    difference is deliberate: booking IS what the officer does in this
+                    phase, so it appears on arrival. The chain then books, records an
+                    outcome and drafts the decree — which is the NEXT two phases, so
+                    offering it mid-story would let a judge skip the story it summarises.
+                  */}
+                  {finished ? (
+                    <div style={{ borderTop: "1px solid #bfdbfe", paddingTop: 12, marginTop: 4 }}>
+                      <button
+                        type="button"
+                        onClick={runSettlementChain}
+                        disabled={chainBusy}
+                        style={{ background: "#7c3aed", color: "#fff", border: "none", borderRadius: 8, padding: "0 18px", minHeight: "var(--touch-min, 2.75rem)", fontFamily: "var(--font-bn)", fontWeight: 700, fontSize: "0.875rem", cursor: chainBusy ? "wait" : "pointer", opacity: chainBusy ? 0.6 : 1 }}
+                      >
+                        {chainBusy ? "চলছে…" : "পুরো চেইন চালান: নির্ধারণ → সালিশ → সনদ"}
+                      </button>
+                      <p style={{ fontFamily: "var(--font-bn)", fontSize: "0.75rem", color: "#1e3a8a", margin: "6px 0 0" }}>
+                        এক ক্লিকে নির্ধারণ, সালিশ ফলাফল এবং AI-এর সালিশ সনদ প্রস্তুত — তিনটিই আসল API।
+                      </p>
+                    </div>
+                  ) : null}
+                </>
+              ) : null}
             </section>
           ) : null}
+
+          {/* The engine status bar. Reads like a process rather than a form: what stage,
+              which speaker, and whether audio is playing right now. */}
+          <div
+            data-engine-status=""
+            style={{
+              display: "flex",
+              alignItems: "center",
+              gap: 8,
+              flexWrap: "wrap",
+              padding: "10px 12px",
+              borderRadius: 10,
+              background: "#0f172a",
+              color: "#e2e8f0",
+              fontFamily: "var(--font-ui)",
+              fontSize: "0.75rem",
+            }}
+          >
+            <span style={{ display: "inline-flex", alignItems: "center", gap: 6, fontWeight: 700 }}>
+              <span
+                aria-hidden="true"
+                style={{
+                  width: 8, height: 8, borderRadius: "50%",
+                  background: running ? "#4ade80" : "#64748b",
+                  boxShadow: running ? "0 0 0 3px rgba(74,222,128,0.25)" : "none",
+                }}
+              />
+              {running ? "চলছে" : finished ? "সম্পন্ন" : "প্রস্তুত"}
+            </span>
+            <span style={{ color: "#94a3b8" }}>ধাপ</span>
+            <span style={{ fontWeight: 700, color: "#e2e8f0" }}>{Math.min(index + 1, timeline.length)}/{timeline.length}</span>
+            {currentPhase ? (
+              <>
+                <span style={{ color: "#94a3b8" }}>পর্ব</span>
+                <span style={{ fontWeight: 700, color: "#a78bfa" }}>{currentPhase.n}. {currentPhase.titleBn}</span>
+              </>
+            ) : null}
+            {turn ? (
+              <>
+                <span style={{ color: "#94a3b8" }}>বক্তা</span>
+                <span style={{ fontWeight: 700, color: turn.speaker === "caller" ? "#7dd3fc" : turn.speaker === "narrator" ? "#fcd34d" : "#86efac" }}>
+                  {SPEAKER_BN[turn.speaker]}
+                </span>
+              </>
+            ) : null}
+            <span style={{ color: "#94a3b8" }}>ভয়েস</span>
+            <span style={{ fontWeight: 700, color: audioState === "playing" ? "#4ade80" : audioState === "missing" ? "#f87171" : "#64748b" }}>
+              {audioState === "playing" ? "চলছে" : audioState === "missing" ? "ক্লিপ নেই" : "নীরব"}
+            </span>
+            <div
+              aria-hidden="true"
+              style={{ flex: "1 1 90px", minWidth: 70, height: 4, borderRadius: 999, background: "#1e293b", overflow: "hidden" }}
+            >
+              <div
+                style={{
+                  height: "100%",
+                  width: `${timeline.length ? (index / timeline.length) * 100 : 0}%`,
+                  background: "linear-gradient(90deg,#4ade80,#a78bfa)",
+                  transition: "width 400ms ease-out",
+                }}
+              />
+            </div>
+          </div>
 
           {/* The pre-recorded player. Kept in the DOM (not detached) so it is
               inspectable and controllable, and so a browser can throttle it with the rest
@@ -629,13 +733,13 @@ export function SimulationDialog({
           {!finished && turn ? (
             <div
               style={{
-                border: `1.5px solid ${turn.speaker === "agent" ? "var(--portal-accent, #15803d)" : "#1d4ed8"}`,
-                borderLeft: `4px solid ${turn.speaker === "agent" ? "var(--portal-accent, #15803d)" : "#1d4ed8"}`,
+                border: `1.5px solid ${SPEAKER_COLOUR[turn.speaker]}`,
+                borderLeft: `4px solid ${SPEAKER_COLOUR[turn.speaker]}`,
                 borderRadius: 10, padding: "12px 14px", background: "#fbfdff",
               }}
             >
-              <div style={{ fontSize: "0.6875rem", fontWeight: 700, letterSpacing: "0.05em", textTransform: "uppercase", color: turn.speaker === "agent" ? "var(--portal-accent-text, #15803d)" : "#1d4ed8", marginBottom: 4 }}>
-                {turn.speaker === "agent" ? "এজেন্ট" : "কলকারী"}
+              <div style={{ fontSize: "0.6875rem", fontWeight: 700, letterSpacing: "0.05em", textTransform: "uppercase", color: SPEAKER_COLOUR[turn.speaker], marginBottom: 4 }}>
+                {SPEAKER_BN[turn.speaker]}
                 {turn.step ? ` · ${turn.step}` : ""}
               </div>
               <p style={{ fontFamily: "var(--font-bn)", fontSize: "0.9375rem", lineHeight: 1.7, color: "var(--portal-text, #0f172a)", margin: 0 }}>
@@ -712,8 +816,8 @@ export function SimulationDialog({
               <div style={{ display: "flex", flexDirection: "column", gap: 8, maxHeight: 300, overflowY: "auto" }}>
                 {history.map((h) => (
                   <div key={h.index}>
-                    <div style={{ fontSize: "0.625rem", fontWeight: 700, color: h.turn.speaker === "agent" ? "var(--portal-accent-text, #15803d)" : "#1d4ed8" }}>
-                      {h.turn.speaker === "agent" ? "এজেন্ট" : "কলকারী"}{h.turn.step ? ` · ${h.turn.step}` : ""}
+                    <div style={{ fontSize: "0.625rem", fontWeight: 700, color: SPEAKER_COLOUR[h.turn.speaker]}}>
+                      {SPEAKER_BN[h.turn.speaker]}{h.turn.step ? ` · ${h.turn.step}` : ""}
                     </div>
                     <p style={{ fontFamily: "var(--font-bn)", fontSize: "0.8125rem", lineHeight: 1.6, color: "var(--portal-text, #0f172a)", margin: "2px 0 0" }}>{h.turn.text}</p>
                   </div>
@@ -892,7 +996,25 @@ export function SimulationDialog({
       </div>
 
       <footer style={{ display: "flex", gap: 16, flexWrap: "wrap", alignItems: "center" }}>
-        <Link href="/demo" style={{ fontFamily: "var(--font-bn)", fontSize: "0.875rem", fontWeight: 600, color: "var(--portal-accent-text, #15803d)", textDecoration: "none" }}>
+        <Link
+          href="/demo"
+          style={{
+            fontFamily: "var(--font-bn)",
+            fontSize: "0.875rem",
+            fontWeight: 600,
+            color: "var(--portal-accent-text, #15803d)",
+            textDecoration: "none",
+            // A bare text link is 21px tall, which is a thumb-sized mistake on a phone and
+            // unusable for the blind and low-literacy users this portal is built for.
+            display: "inline-flex",
+            alignItems: "center",
+            minHeight: "var(--touch-min, 2.75rem)",
+            padding: "0 12px",
+            borderRadius: 8,
+            border: "1.5px solid var(--portal-border, #e2e8f0)",
+            background: "#fff",
+          }}
+        >
           ← পাঁচটি সিনারিও
         </Link>
         <span style={{ fontFamily: "var(--font-bn)", fontSize: "0.75rem", color: "var(--portal-text-muted, #94a3b8)" }}>

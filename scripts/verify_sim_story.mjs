@@ -6,12 +6,32 @@ const errs = []; p.on("pageerror", (e) => errs.push(String(e)));
 let fail = 0;
 const ck = (k, v, x = "") => { if (!v) fail++; console.log(`${v ? "PASS" : "FAIL"} ${k}${x ? " :: " + x : ""}`); };
 
-// Clips must be served, not 404.
-const clips = ["moyuri_01_greeting.wav","moyuri_02_caller_lang.wav","moyuri_06_problem.wav","moyuri_07_ack.wav","moyuri_09_flagged.wav","moyuri_17_draft.wav","moyuri_19_outcome.wav","nabila_02_problem.wav"];
-for (const c of clips) {
-  const r = await fetch(site + "audio/sim/" + c);
-  ck("clip served: " + c, r.status === 200 && Number(r.headers.get("content-length")) > 1000, `${r.status} ${r.headers.get("content-length")}b`);
+// Every clip a turn references must actually be served. Derived from the plan rather than
+// listed by hand: a hardcoded list is what let `nabila_02_problem.wav` outlive the file it
+// named, and the failure it caused was silent — a missing clip degrades to a caption, so
+// three of the five personas played back mute and every other check still passed.
+const { audioClipPlan } = await (await import("jiti")).createJiti(import.meta.url).import("../lib/demo/simulations.ts");
+const plan = audioClipPlan();
+const badClips = [];
+for (const c of plan) {
+  const r = await fetch(site + "audio/sim/" + c.file);
+  const ok = r.status === 200 && Number(r.headers.get("content-length")) > 1000;
+  if (!ok) badClips.push(`${c.file} ${r.status}`);
 }
+ck(`all ${plan.length} clips served`, badClips.length === 0, badClips.length ? badClips.join(", ") : `${plan.length} files`);
+
+// Distinct voices, checked as data rather than by ear. Soniox voices are
+// language-independent, so a scenario that reuses one voice for two speakers is a defect
+// the runtime cannot show — it just sounds like one person talking to themselves.
+const cast = new Set(plan.map((c) => c.voice));
+ck("the cast uses several distinct voices", cast.size >= 5, [...cast].join(", "));
+const nabila = plan.filter((c) => c.simId === "nabila" && c.speaker === "caller");
+const ripon = plan.filter((c) => c.simId === "ripon" && c.speaker === "caller");
+ck("Nabila and Ripon do not share a voice", nabila.length && ripon.length && nabila[0].voice !== ripon[0].voice,
+   `nabila=${nabila[0]?.voice} ripon=${ripon[0]?.voice}`);
+const moyuriTurn = plan.find((c) => c.speaker === "moyuri");
+ck("Moyuri has her own voice, not her proxy's", !!moyuriTurn && moyuriTurn.voice !== ripon[0]?.voice,
+   `moyuri=${moyuriTurn?.voice}`);
 
 await p.goto(site + "demo/simulation", { waitUntil: "networkidle" });
 await p.waitForTimeout(1000);

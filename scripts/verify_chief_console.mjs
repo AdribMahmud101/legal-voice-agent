@@ -58,7 +58,9 @@ await page.waitForTimeout(2000);
 const chiefText = await page.locator("body").innerText();
 ok("console renders the framing line", /প্রত্যায়ন করেন/.test(chiefText));
 ok("console shows the five tabs", /সারসংক্ষেপ/.test(chiefText) && /অসদাচরণ/.test(chiefText));
-ok("supervision is marked read-only", /পরিদর্শনের জন্য/.test(chiefText));
+// "শুধুমাত্র পরিদর্শন" — supervision only, i.e. the view is read-only. The badge used to
+// read "পরিদর্শনের জন্য", which matched nothing.
+ok("supervision is marked read-only", /শুধুমাত্র পরিদর্শন/.test(chiefText));
 
 console.log("\n3. the certification gate holds at two of three");
 if (chief.status() === 200) {

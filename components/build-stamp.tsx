@@ -16,13 +16,26 @@
 import { BUILD_SHA, BUILD_AT } from "@/lib/build-info";
 
 export default function BuildStamp() {
+  // Pinned to UTC, and it has to be.
+  //
+  // `toLocaleString` with `hour`/`minute` formats in the RUNTIME's timezone, and the two
+  // runtimes here are six hours apart: the Worker is UTC, the browser is Asia/Dhaka. That
+  // made the same build read "01:05" in the server-rendered HTML and "07:05" on the
+  // client, so React threw a hydration mismatch (#418) on every page carrying this stamp
+  // — /dlao among them — and no assertion in the ADR suite could tell a date bug from any
+  // other page error.
+  //
+  // A build timestamp is a fact about the deployment rather than about the viewer's day,
+  // so UTC is both the stable choice and the honest one. The raw ISO instant is in the
+  // tooltip for anyone who needs the exact value.
   const when = new Date(BUILD_AT).toLocaleString("en-GB", {
     day: "2-digit",
     month: "short",
     hour: "2-digit",
     minute: "2-digit",
+    timeZone: "UTC",
   });
-  const shown = `${BUILD_SHA} · ${when}`;
+  const shown = `${BUILD_SHA} · ${when} UTC`;
 
   return (
     <span

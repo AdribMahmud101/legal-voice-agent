@@ -3,9 +3,10 @@
 import Image from "next/image";
 import Link from "next/link";
 import { isSystemAdministrator } from "@/lib/auth/screen-guard";
-import { useState, type ReactNode } from "react";
+import { useEffect, useState, type ReactNode } from "react";
 import { AgentFab } from "./AgentFab";
 import BuildStamp from "@/components/build-stamp";
+import { formatBn } from "@/lib/case/mediation";
 
 export type DlaoTab =
   | "applications"
@@ -49,25 +50,35 @@ const TABS: Array<{ id: DlaoTab; label: string }> = [
 ];
 
 /**
- * Today, in Bangla. A hardcoded weekday and date was a claim about the data that
- * went stale silently; the browser already knows what day it is.
+ * Today, in Bangla.
+ *
+ * This used to be `new Date().toLocaleDateString("bn-BD", …)`, which is wrong twice over
+ * and produced a React hydration mismatch on every /dlao load:
+ *
+ *   1. `toLocaleDateString` formats in the RUNTIME's timezone. The Worker is UTC and the
+ *      officer's browser is UTC+6, so for six hours a day the server sent one date and the
+ *      client corrected it to the next — the same class of bug that had the calendar
+ *      render a different day than the one being booked.
+ *   2. It depends on the host's ICU data, so the server and the browser can format the
+ *      same instant differently and disagree about the text, not just the value.
+ *
+ * `formatBn` reads the Bangladesh civil fields off the instant and builds the Bangla
+ * string itself, so both sides necessarily agree. The remaining hazard — the BD date
+ * flipping between the server render and hydration — is closed by rendering it only once
+ * mounted, which is why this is a hook and not a plain function.
  */
-function todayBn(): string {
-  try {
-    return new Date().toLocaleDateString("bn-BD", {
-      weekday: "long",
-      day: "numeric",
-      month: "long",
-      year: "numeric",
-    });
-  } catch {
-    return "";
-  }
+function useTodayBn(): string {
+  const [today, setToday] = useState("");
+  useEffect(() => {
+    setToday(formatBn(new Date(), true));
+  }, []);
+  return today;
 }
 
 export function DlaoShell({ children, activeTab, onTabChange, tabCounts, role }: DlaoShellProps) {
   const [localTab, setLocalTab] = useState<DlaoTab>(activeTab || "applications");
   const [language, setLanguage] = useState<"bn" | "en">("bn");
+  const today = useTodayBn();
   const currentTab = activeTab || localTab;
 
   const selectTab = (tab: DlaoTab) => {
@@ -119,7 +130,7 @@ export function DlaoShell({ children, activeTab, onTabChange, tabCounts, role }:
             <span>ডেলওয়েকা জেলা লিগ্যাল এইড অফিস</span>
           </div>
           <Link href="/citizen/apply" className="dlao-new-application">+ নতুন আবেদন পরিচালনা করুন (ওয়েব-ফর্ম)</Link>
-          <span className="dlao-updated">{todayBn()}</span>
+          <span className="dlao-updated">{today}</span>
         </div>
       </div>
 
