@@ -4,6 +4,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { DlaoShell, type DlaoTab } from "@/lib/ui/shell/DlaoShell";
 import DlaoAssignmentWorkbench from "@/components/dlao-assignment-workbench";
+import AdviceRegister from "@/components/advice-register";
 import MediationCalendar, { type CalendarMediation } from "@/components/mediation/mediation-calendar";
 import MediationBookingPanel from "@/components/mediation/mediation-booking-panel";
 import { useVoiceSession } from "@/hooks/use-voice-session";
@@ -167,6 +168,7 @@ export default function DlaoDashboard() {
     : activeTab === "mediation" ? "মধ্যস্থতা (ADR)"
     : activeTab === "calendar" ? "কার্যতালিকা ক্যালেন্ডার"
     : activeTab === "reports" ? "প্রতিবেদন"
+    : activeTab === "advice" ? "পরামর্শ রেকর্ড"
     : "আবেদন";
 
   const notBuiltNote = NOT_BUILT[activeTab];
@@ -179,6 +181,9 @@ export default function DlaoDashboard() {
       role={currentUser?.role ?? null}
     >
       <h1 className="dlao-page-heading">{heading}</h1>
+
+      {/* ---- advice register: general inquiries taken on 16699 ---- */}
+      {activeTab === "advice" ? <AdviceRegister /> : null}
 
       {/* ---- panel lawyers ---- */}
       {activeTab === "lawyers" ? <DlaoAssignmentWorkbench cases={cases} onAssigned={reload} /> : null}

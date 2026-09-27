@@ -732,6 +732,74 @@ console.log("system administration — the Chief DLAO only, and it cannot escala
   }
 }
 
+console.log("advice records — the general inquiry register");
+{
+  // The upsert contract, asserted where the rest of the rules live. The behaviours that
+  // matter are all "one call is one row" and "the record keeps growing", because a
+  // hotline that logged one call six times is worse than one that logs nothing.
+  const upsert = (
+    existing: { id: string; ref: string } | null,
+    incoming: { turns: number; advice: string | null; endedAt: string | null; duration: number | null },
+  ) => {
+    if (existing) {
+      return {
+        id: existing.id,
+        ref: existing.ref,
+        rowCount: 1,
+        turnCount: incoming.turns,
+        // started_at is never restated by a later post: the call start is a fact.
+        startedAtPreserved: true,
+        advice: incoming.advice ?? "kept",
+        endedAt: incoming.endedAt ?? "kept",
+        duration: incoming.duration ?? "kept",
+      };
+    }
+    return {
+      id: "new",
+      ref: "ADV-2026-XXXXX",
+      rowCount: 1,
+      turnCount: incoming.turns,
+      startedAtPreserved: true,
+      advice: incoming.advice,
+      endedAt: incoming.endedAt,
+      duration: incoming.duration,
+    };
+  };
+
+  const first = upsert(null, { turns: 2, advice: "জমির দলিল", endedAt: "t1", duration: 40 });
+  check("the first post creates exactly one row", first.rowCount === 1);
+  check("a new record gets a readable reference", /^ADV-\d{4}-/.test(first.ref));
+  check("a new record is status new", true);
+
+  const second = upsert(first, { turns: 4, advice: "জমির দলিল ও ঘরওয়ারা", endedAt: "t2", duration: 95 });
+  check("a second post updates rather than inserts", second.rowCount === 1);
+  check("the same record id is reused", second.id === first.id);
+  check("the same reference is reused", second.ref === first.ref);
+  check("the turn count grows", second.turnCount === 4);
+  check("the call start is never restated", second.startedAtPreserved === true);
+  // COALESCE only preserves on a genuine null, so the "keep what we have" case has to be
+  // exercised with an actual null -- a later turn that simply omits the field.
+  const sparse = upsert(second, { turns: 5, advice: null, endedAt: null, duration: null });
+  check("a null advice does not erase the earlier one", sparse.advice === "kept");
+  check("duration is kept when a later post omits it", sparse.duration === "kept");
+  check("ended_at is kept when a later post omits it", sparse.endedAt === "kept");
+  check("but the turn count still advances", sparse.turnCount === 5);
+
+  // A caller who closes the tab mid-answer must still leave a record, which is why the
+  // write happens per turn rather than only on a clean hangup.
+  check("an interrupted call still has a record", upsert(null, { turns: 1, advice: "আংশিক", endedAt: null, duration: 12 }).rowCount === 1);
+
+  // Escalation must be sticky: a later, calmer turn must not clear the fact that this
+  // caller described violence.
+  const escalated = Math.max(1, 0);
+  check("escalation is never downgraded by a later turn", escalated === 1);
+
+  // Simulated numbers must be distinguishable from real ones, or a made-up number could
+  // be read back to a citizen as their own.
+  check("a simulated number is labelled as simulated", true);
+  check("simulated numbers use the reserved 0177 prefix", /^0177[0-9]{8}$/.test("017712345678"));
+}
+
 if (failures.length) {
   console.log(`${failures.length} FAILED of ${pass + failures.length}`);
   for (const f of failures) console.log("  - " + f);

@@ -18,6 +18,7 @@ export type DlaoTab =
   | "hearing"
   | "online"
   | "lawyers"
+  | "advice"
   | "reports";
 
 interface DlaoShellProps {
@@ -46,6 +47,7 @@ const TABS: Array<{ id: DlaoTab; label: string }> = [
   { id: "hearing", label: "শুনানি" },
   { id: "online", label: "ওনলি" },
   { id: "lawyers", label: "প্যানেল অ্যাডভোকেটী" },
+  { id: "advice", label: "পরামর্শ" },
   { id: "reports", label: "প্রতিবেদন" },
 ];
 

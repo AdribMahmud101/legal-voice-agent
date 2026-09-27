@@ -666,6 +666,22 @@ export class DirectSession implements VoiceSession {
   private casePinDraft = "";
   private casePinAttempts = 0;
   private generalQueryMode: boolean = false; // true after keypad 1 is pressed
+
+  /**
+   * Advice-record bookkeeping for a general inquiry.
+   *
+   * A general inquiry used to leave no trace at all: the LLM answered, the answer was
+   * spoken, and the call vanished when the tab closed. The DLAO could not answer "what
+   * did we advise this person, and how long did it take?" -- which is the point of a
+   * legal-aid hotline. So the turn is recorded as it happens rather than at the end: a
+   * caller who hangs up mid-answer must still leave a record, and that rules out writing
+   * only on a clean hangup.
+   */
+  private callStartedAtMs: number = 0;
+  private advicePersistTimer: ReturnType<typeof setTimeout> | null = null;
+  private adviceEscalated: boolean = false;
+  /** Last substantive answer, kept so the record's summary is the advice actually given. */
+  private lastAdviceText: string = "";
   private severityConfirmation: { query: string; classification: SeverityClassification | null } | null = null;
   private assistantTurnText = "";
   private captureAssistantTurn = false;
@@ -860,6 +876,9 @@ export class DirectSession implements VoiceSession {
 
     this.waitingForDtmf = false;
     this.sessionId = "call-" + Date.now().toString(36) + "-" + Math.random().toString(36).substring(2, 6);
+    this.callStartedAtMs = Date.now();
+    this.adviceEscalated = false;
+    this.lastAdviceText = "";
     this.halfDuplex = config.halfDuplex ?? true;
     this.isAssistantSpeakingOrPlaying = false;
     this.greetingSpoken = false;
@@ -1709,6 +1728,12 @@ export class DirectSession implements VoiceSession {
       if (fullAssistantText.trim().length > 0) {
         this.emit({ type: "transcript", role: "assistant", text: fullAssistantText.trim() });
         this.conversationHistory.push({ role: "assistant", content: fullAssistantText.trim() });
+        // Only a general inquiry is an advice record. A case intake writes a case, and
+        // writing both would double-count the same call in two registers.
+        if (this.generalQueryMode) {
+          this.lastAdviceText = fullAssistantText.trim();
+          this.persistAdviceRecord(false);
+        }
       }
 
       if (this.player) {
@@ -1923,6 +1948,8 @@ export class DirectSession implements VoiceSession {
   }
 
   public async cutCall(reason: CallEndReason = "caller"): Promise<void> {
+    // A hangup is the last chance to write, so it bypasses the debounce.
+    this.persistAdviceRecord(true);
     if (!this.isCallActive) return;
     const activityEpoch = ++this.activityEpoch;
     this.clearInactivityTimer();
@@ -3320,7 +3347,74 @@ export class DirectSession implements VoiceSession {
     }
   }
 
+  /**
+   * Records the general inquiry so far as an advice record.
+   *
+   * Debounced, because it fires on every answered turn and each write is a network round
+   * trip; a three-question call should not make three concurrent POSTs for the same row.
+   * `final` skips the debounce so a hangup is written immediately rather than being lost
+   * to a pending timer.
+   *
+   * Fire-and-forget on purpose. A failed record must never interrupt a live call -- the
+   * citizen on the line matters more than the log -- so this swallows its own errors.
+   */
+  private persistAdviceRecord(final: boolean): void {
+    if (this.advicePersistTimer) {
+      clearTimeout(this.advicePersistTimer);
+      this.advicePersistTimer = null;
+    }
+    const write = async () => {
+      this.advicePersistTimer = null;
+      try {
+        const startedAt = this.callStartedAtMs || Date.now();
+        // The browser softphone has no real caller number, so one is simulated and
+        // *labelled* simulated. Recording it without the flag would let a made-up number
+        // be read back to a citizen as their own.
+        const phone = this.callerPhone;
+        await fetch("/api/portal/advice", {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          keepalive: true,
+          body: JSON.stringify({
+            voiceSessionId: this.sessionId,
+            callerPhone: phone ?? this.simulatedCallerNumber(),
+            phoneIsSimulated: !phone,
+            language: this.indigenousLanguage || "bn",
+            startedAt: new Date(startedAt).toISOString(),
+            endedAt: new Date().toISOString(),
+            durationSeconds: Math.max(0, Math.round((Date.now() - startedAt) / 1000)),
+            transcript: this.conversationHistory,
+            advice: this.lastAdviceText || null,
+            topics: null,
+            category: this.adviceEscalated ? "severity" : "general",
+            escalated: this.adviceEscalated,
+          }),
+        });
+      } catch {
+        // Swallowed on purpose. See above: never break a live call over a log write.
+      }
+    };
+    if (final) void write();
+    else this.advicePersistTimer = setTimeout(() => void write(), 1200);
+  }
+
+  /**
+   * A synthetic caller number for the browser softphone.
+   *
+   * The 0177 prefix is used rather than a real subscriber range so a simulated number can
+   * never be mistaken for -- or dialled as -- an actual 16699 caller, and the record's
+   * `phone_is_simulated` flag says so independently.
+   */
+  private simulatedCallerNumber(): string {
+    const seed = Math.abs(
+      [...this.sessionId].reduce((acc, ch) => (acc * 31 + ch.charCodeAt(0)) | 0, 7),
+    );
+    const tail = String(seed % 100000000).padStart(8, "0");
+    return `0177${tail}`;
+  }
+
   public stop(): void {
+    this.persistAdviceRecord(true);
     this.stopRecording();
     this.activityEpoch += 1;
      this.isCallActive = false;
