@@ -38,9 +38,20 @@ Confirmed by grep: none of these click "কল করুন" or touch `/v1/stt` 
 - `scripts/verify_sheet_nav.mjs`, `scripts/verify_portal_a11y.mjs`, `scripts/verify_identity.mjs`
 - `scripts/verify_verification_steps.mjs`, `scripts/verify_progress_visible.mjs`, `scripts/verify_face_capture.mjs`
 - `scripts/verify_manual_application.mjs` — honours `SITE`
+- `scripts/verify_sim_story.mjs`, `scripts/verify_sim_mobile.mjs` — the simulation
+  replays **pre-recorded** clips, so they cost nothing. `verify_sim_mobile.mjs` must
+  reach 16/16; `verify_sim_story.mjs` is the regression guard on the cast and the plan.
+- `scripts/verify_proxy_workflow.mjs`, `scripts/verify_merged_demo_entry.mjs`,
+  `scripts/verify_persona_demo_login.mjs`, `scripts/verify_dlao_adr.mjs`,
+  `scripts/verify_chief_console.mjs` — persona, ADR and console suites. No call, no
+  STT/TTS, no LLM.
 - `npm run test:semantic`, `npm run test:identity`
 - `npm run test:case-rules` — case/SLA/guard/audit/role business rules. Pure, no network.
 - `npm run test:case-flows` — the approval flows end to end against the 0016 rules. Pure.
+- `npm run test:simulations`, `test:safe-window`, `test:bd-time`, `test:settlement-draft` — pure.
+
+`scripts/generate_sim_audio.mjs` is the one script here that **spends** (TTS synthesis,
+one clip at a time). It borrows the deployed `/v1/tts` proxy, so it needs no local key.
 
 Re-check that list with
 `cd scripts && grep -cE "কল করুন|\.start\(|/v1/stt|/v1/tts" verify_*.mjs`
@@ -383,6 +394,69 @@ Two failures that look identical from the caller's seat but are not the same bug
 - `scripts/verify_persona_demo_login.mjs` is **FREE** (no call, no STT/TTS, no LLM).
   It checks the spec page, one click per persona, cross-persona isolation, and that
   re-login does not duplicate cases. Confirmed free by the AGENTS.md grep.
+
+## The simulation is a CAST, and the clip plan has one owner
+
+- **Every persona used to be read by the same voice.** The worker hardcoded
+  `voice: env.TTS_VOICE_ID` and never forwarded a per-request one, so all 23 clips
+  were Priya — a man reporting his sister's domestic violence in a woman's register.
+  The Speak handler now honours `voice` and otherwise keeps the default, so the live
+  agent is unchanged. **Backwards compatible by construction: the voice SDK never
+  sends `voice`.**
+- Soniox voices are **language-independent** — one voice keeps its identity in every
+  language it speaks. So `voice` is what makes a speaker a *person* rather than another
+  reading of the same one. `VOICES` in `lib/demo/simulations.ts` is the cast:
+  Priya (agent, the same voice the live agent uses), Karan (Ripon), Adrian (narrator),
+  Iris (Moyuri), Nina (Nabila), Mina (Nuching), Dev (Malek).
+- **Cast is per-scenario, not per-speaker-kind.** `Simulation.callerVoice` exists
+  because "caller" is not one person: Nabila and Nuching are women, and a single shared
+  caller voice had them read by the male proxy voice — misrepresenting two of the five
+  personas in exactly the way the brief asks the system not to.
+- Moyuri has her **own `Speaker`**, not `caller`. She speaks once, inside her fifteen
+  minutes, and `caller` is Ripon. Filing it there would attribute her account to her
+  brother — the single thing the brief requires to stay separate. `resolveVoice`
+  lists her explicitly; falling through to `callerVoice` is the bug.
+- **`audioClipPlan()` is the only clip list.** The generator used to keep a hand-copied
+  array of clip names which drifted from the turns that reference them
+  (`nabila_01_greeting.wav` vs `nabila_greeting.wav`), so every secondary clip 404'd
+  and **three of five personas played back silent** — silently, because a missing clip
+  degrading to a caption is the designed fallback, so every other check still passed.
+  The plan is now derived from the turns via jiti, and the generator **exits non-zero
+  if a referenced clip is not on disk.** Never re-add a second copy of the script.
+- Verify voices by **measurement, not by request**: median F0 over voiced frames is
+  98–128 Hz for the three male voices and 205–242 Hz for the four female ones. A test
+  that only asserts `plan.map(v => v.voice)` is asserting the intent, not the audio.
+- Regenerate with `node scripts/generate_sim_audio.mjs [filter] [--force]`. `--force`
+  is required after a **voice** change, because the filename does not change and
+  existence is no evidence the voice is right. **SPENDS SONIOX CREDITS.**
+- `/v1/voices` lists the catalogue, gated on `DEBUG_ENDPOINTS` like `/api/test-env`
+  and **closed in production**. The catalogue is only reachable with the API key, which
+  lives in the Worker; guessing names and synthesising until one works spends credits
+  on every attempt. Only Priya is Indian-accent female, so the female personas are
+  distinguishable by timbre rather than accent.
+- `verify_sim_story.mjs` and `verify_sim_mobile.mjs` are **FREE** and both derive their
+  clip expectations from `audioClipPlan()`. `verify_sim_mobile.mjs` must reach **16/16**.
+
+## Never render "now" through the runtime's locale — it is a hydration bug
+
+- The Worker is **UTC**; the officer's browser is **UTC+6**. Anything that formats a date
+  with `toLocaleDateString`/`toLocaleString` and no `timeZone` formats in the *runtime's*
+  zone with the *host's* ICU data, so the server and the client can disagree about both
+  the value and the text. That is React **#418**, and it fires on every page load.
+- This has now bitten twice. `BuildStamp` rendered the build time as `01:05` on the
+  server and `07:05` in the browser — pinned to **UTC** now, because a build timestamp
+  is a fact about the deployment, not about the viewer's day. `DlaoShell` rendered
+  "today" as `toLocaleDateString("bn-BD", …)` — now `formatBn` from
+  `lib/case/mediation.ts`, rendered only after mount.
+- **Use the Bangladesh helpers**, which read BD civil fields off the instant and build the
+  Bangla string themselves, so both runtimes necessarily agree: `formatBn`, `weekdayBn`,
+  `weekdayBnShort`, `bdDayOfMonth`, `bdMonthOfYear`, `toDateKey`, `workdaysOfWeek`.
+- A **stored record timestamp** rendered with `toLocale*` is still a latent instance of
+  this — it only shows when the value is within 6h of a day boundary, which for a legal
+  **deadline** is exactly the case that matters. Several remain in
+  `chief-console.tsx` and `lawyer-monitor-console.tsx`; they are not fixed yet.
+- `verify_dlao_adr.mjs` asserts the specific symptom (`#418|#423|#425`) rather than
+  only "no page errors", because the generic line cannot tell a date bug from anything else.
 
 ## ADR, the DLAO calendar, and the safe-contact window
 
