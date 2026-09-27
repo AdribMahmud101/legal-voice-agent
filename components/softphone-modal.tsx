@@ -129,6 +129,13 @@ const SCENARIOS = [
 interface SoftphoneModalProps {
   isOpen: boolean;
   onClose: () => void;
+  /**
+   * Why the call could not start, already phrased in Bangla by the caller.
+   *
+   * Shown as a banner rather than logged, because the failure this replaces was a
+   * `console.error` nobody can see during a live demonstration.
+   */
+  callError?: string | null;
   phase: SessionPhase;
   sessionId: string | null;
   currentUser: SessionUser | null;
@@ -150,6 +157,7 @@ interface SoftphoneModalProps {
 export function SoftphoneModal({
   isOpen,
   onClose,
+  callError,
   phase,
   sessionId,
   currentUser,
@@ -254,6 +262,20 @@ export function SoftphoneModal({
 
         onClick={(e) => e.stopPropagation()}
       >
+        {/* The failure banner. Placed above the header so a blocked microphone is the
+            first thing anyone sees, not something they have to infer from a dead button. */}
+        {callError ? (
+          <div
+            role="alert"
+            className="shrink-0 bg-red-50 border-b border-red-200 px-4 py-3 text-sm text-red-900 flex items-start gap-2"
+          >
+            <span aria-hidden className="text-base leading-none">⚠</span>
+            <div>
+              <p className="font-semibold">কল শুরু হয়নি</p>
+              <p className="mt-0.5">{callError}</p>
+            </div>
+          </div>
+        ) : null}
         {/* Softphone Dialog Top Header */}
          <div className="bg-emerald-950 text-white px-3 sm:px-5 py-3 flex sm:py-3.5 flex-wrap sm:flex-nowrap items-center justify-between gap-2 border-b border-emerald-900 shrink-0">
            <div className="min-w-0 flex-1 flex items-center gap-3">

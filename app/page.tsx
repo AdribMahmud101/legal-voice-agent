@@ -11,6 +11,16 @@ export default function Home() {
   const [isSoftphoneOpen, setIsSoftphoneOpen] = useState(false);
   const [isConnecting, setIsConnecting] = useState(false);
   const [callDuration, setCallDuration] = useState(0);
+  /**
+   * Why the call could not start, in plain Bangla, shown in the softphone.
+   *
+   * This exists because the failure was silent. `start()` could throw -- most often
+   * because the browser denied the microphone -- and the error went to `console.error`,
+   * which nobody in a demonstration can see. The modal opened, the button did nothing,
+   * and the agent looked broken while the server and Soniox were both perfectly fine.
+   * A demo that fails must say why, on screen, in the user's language.
+   */
+  const [callError, setCallError] = useState<string | null>(null);
 
   const {
      phase,
@@ -60,15 +70,59 @@ export default function Home() {
     return `${mins.toString().padStart(2, "0")}:${secs.toString().padStart(2, "0")}`;
   };
 
+  /**
+   * Checks the microphone *before* dialling, so a blocked mic is a sentence rather than a
+   * dead button. Every branch here used to be discovered live, on stage.
+   */
+  const preflightMic = async (): Promise<string | null> => {
+    if (typeof navigator === "undefined" || !navigator.mediaDevices?.getUserMedia) {
+      return "এই ব্রাউজারে মাইক্রোফোন পাওয়া যাচ্ছে না। ক্রোম বা এডজ ব্যবহার করুন।";
+    }
+    if (typeof window !== "undefined" && !window.isSecureContext) {
+      return "মাইক্রোফোন কেবল নিরাপদ (https) সাইটে কাজ করে।";
+    }
+    try {
+      // A real stream, released immediately. Asking is the only way to learn the truth:
+      // a permission that was previously blocked is not visible to any API until asked.
+      const probe = await navigator.mediaDevices.getUserMedia({ audio: true });
+      for (const track of probe.getTracks()) track.stop();
+      return null;
+    } catch (err) {
+      const name = (err as { name?: string })?.name ?? "";
+      if (name === "NotAllowedError" || name === "SecurityError") {
+        return "মাইক্রোফোনের অনুমতি পাওয়া যায়নি। ব্রাউজারের ঠিকানা বারের লক আইকনে গিয়ে মাইক্রোফোন ON করুন, তারপর আবার চাপুন।";
+      }
+      if (name === "NotFoundError" || name === "DevicesNotFoundError") {
+        return "কোনো মাইক্রোফোন পাওয়া যায়নি। মাইক্রোফোন লাগিয়ে আবার চাপুন।";
+      }
+      if (name === "NotReadableError") {
+        return "মাইক্রোফোনটি অন্য অ্যাপ ব্যবহার করছে। অন্য অ্যাপ বন্ধ করে আবার চাপুন।";
+      }
+      return "মাইক্রোফোন চালু করা যায়নি। পেজটি রিফ্রেশ করে আবার চেষ্টা করুন।";
+    }
+  };
+
   const handleOpenSoftphone = async () => {
     setIsSoftphoneOpen(true);
-    // If not already active or connecting, automatically initiate call for effortless 1-tap UX
     if (!isCallActive && phase === "idle") {
+      setCallError(null);
       setIsConnecting(true);
       try {
+        // Preflight first. Dialling with no microphone produces a call that connects,
+        // greets the caller, and then cannot hear a word -- the worst possible failure to
+        // debug live, because everything looks like it is working.
+        const blocked = await preflightMic();
+        if (blocked) {
+          setCallError(blocked);
+          return;
+        }
         await start();
+        setCallError(null);
       } catch (err) {
         console.error("Auto-start call error:", err);
+        setCallError(
+          "কল শুরু করা যায়নি। নেটওয়ার্ক পরীক্ষা করে আবার চাপুন। বিস্তারিত ব্রাউজার কনসোলে আছে।",
+        );
       } finally {
         setIsConnecting(false);
       }
@@ -88,7 +142,8 @@ export default function Home() {
       {/* 2. Softphone Simulator Popup Modal */}
       <SoftphoneModal
         isOpen={isSoftphoneOpen}
-        onClose={() => setIsSoftphoneOpen(false)}
+        onClose={() => { setIsSoftphoneOpen(false); setCallError(null); }}
+        callError={callError}
         phase={phase}
          sessionId={sessionId}
          currentUser={currentUser}
